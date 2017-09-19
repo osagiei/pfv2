@@ -1,0 +1,176 @@
+/*
+ * To change this template, choose Tools | Templates
+ * and open the template in the editor.
+ */
+package bio.igm.utils.discovery;
+
+import bio.igm.utils.init.Logging;
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+/**
+ *
+ * @author osagie izuogu
+ */
+public class ProcessShuffledCoordinates {
+
+    String path;
+    int chrom_width, segment_size;
+    final int extension = 20;
+    private static Logger LOG;
+    //  Map<String, String> ids = new HashMap<>(); //remove to solve memory issues, use commandline to make unique
+
+    public ProcessShuffledCoordinates(String _path, int _chrom_width, int read_length, int anchor_size) throws IOException {
+        this.path = _path;
+        File f = new File(_path);
+
+        try {
+            if (f.isDirectory()) {
+                LOG = new Logging(_path, ProcessShuffledCoordinates.class.getName()).setup();
+            } else {
+                LOG = new Logging(f.getParent(), ProcessShuffledCoordinates.class.getName()).setup();
+            }
+        } catch (IOException ex) {
+            Logger.getLogger(ProcessShuffledCoordinates.class.getName()).log(Level.SEVERE, null, ex);
+        }
+        this.chrom_width = _chrom_width;
+        this.segment_size = read_length - (2 * anchor_size); //inner sequence between anchors
+        read_processed_sam();
+    }
+
+    private void read_processed_sam() throws IOException {
+        BufferedReader br = new BufferedReader(new FileReader(path + "/processedSAM.txt"));
+        //BufferedWriter bw = new BufferedWriter(new FileWriter(path + "/putative_structures.txt"));
+        BufferedWriter bw = new BufferedWriter(new FileWriter(path + "/temp_structures.txt"));
+        
+        String line = "";
+
+        LOG.info("Reading processed SAM file.. ");
+        while ((line = br.readLine()) != null) {
+
+            try {
+                String chr = line.split("\t")[1];
+                int left = Integer.parseInt(line.split("\t")[2]);
+                int right = Integer.parseInt(line.split("\t")[3]);
+                int leftwidth = Integer.parseInt(line.split("\t")[5]);
+                int rightwidth = Integer.parseInt(line.split("\t")[6]);
+                int o = Integer.parseInt(line.split("\t")[4]);
+
+                /*
+                 if((Math.abs(left - right + leftwidth) < chrom_width )){ //check that both anchors are close, mostly to be within same locus
+                 int tl = 0;
+                 int tr = 0;
+                    
+                 if(o == -1){
+                 left -= extension;
+                 right += rightwidth + extension;
+                        
+                 for(int i = 0; i < segment_size; i++){
+                 tl = left + extension + leftwidth + i;
+                 tr = right - rightwidth - extension - (segment_size -i);
+                            
+                 String id = chr + ":" + tr + "-" + tl + "_" + "+";
+                 String to_print = chr + "\t" + left + "\t" + tl + "\t" + tr + "\t" + right + "\t" + id + "\n";
+                 bw.write(to_print);
+                 }
+                     
+                 }else{
+                 right -= extension;
+                 left += rightwidth + extension;
+                        
+                 for(int i = 0; i < segment_size; i++){
+                 tl = right + extension + rightwidth + i;
+                 tr = left - leftwidth - extension - (segment_size -i);
+                            
+                 String id = chr + ":" + tl + "-" + tr + "_" + "-"  ;
+                 String to_print = chr + "\t" + right + "\t" + tr + "\t" + tl + "\t" + left + "\t" + id + "\n";
+                 bw.write(to_print);
+                 }
+                       
+                 }                  
+                   
+                 }
+                 * */
+                if ((Math.abs(left - right + leftwidth) < chrom_width)) { //check that both anchors are close, mostly to be within same locus
+                    int tl = 0;
+                    int tr = 0;
+
+                    if (o == -1) {
+                        left -= extension;
+                        right += rightwidth + extension;
+
+                        for (int i = 0; i < segment_size; i++) {
+                            for (int j = i + 1; j < segment_size; j++) {
+                                tl = left + extension + leftwidth + i;
+                                tr = right - rightwidth - extension - j;
+
+                                String id = chr + ":" + tr + "-" + tl + "_" + "+";
+                                // if (!ids.containsKey(id)) {
+                                String to_print = chr + "\t" + left + "\t" + tl + "\t" + tr + "\t" + right + "\t" + id + "\n";
+                                bw.write(to_print);
+                                //   ids.put(id, to_print);
+                                // }
+                            }
+                        }
+
+                    } else {
+                        left += leftwidth + extension;
+                        right -= extension;
+
+                        for (int i = 0; i < segment_size; i++) {
+                            for (int j = i + 1; j < segment_size; j++) {
+                                // tl = left - extension - leftwidth - i;
+                                // tr = right + rightwidth + extension + (segment_size -i);
+                                tl = left - extension - leftwidth - i;
+                                tr = right + rightwidth + extension + j;
+                                // tr = right + rightwidth + extension + (segment_size - i);
+
+                                String id = chr + ":" + tl + "-" + tr + "_" + "-";
+
+                                //  if (!ids.containsKey(id)) {
+                                String to_print = chr + "\t" + right + "\t" + tr + "\t" + tl + "\t" + left + "\t" + id + "\n";
+                                bw.write(to_print);
+                                //     ids.put(id, to_print);
+                                // }
+                            }
+
+                        }
+
+                    }
+
+
+
+                }
+            } catch (Exception e) {
+                LOG.info("Error processing this read: " + line);
+            }
+
+
+        }
+
+        br.close();
+        bw.close();
+        LOG.info("Finished reading processed SAM file .. ");
+
+    }
+
+    public static void main(String[] args) {
+        String path = args[0];
+        int _chrom_width = Integer.parseInt(args[1]);
+        int read_length = Integer.parseInt(args[2]);
+        int anchor_size = Integer.parseInt(args[3]);
+        try {
+            new ProcessShuffledCoordinates(path, _chrom_width, read_length, anchor_size);
+        } catch (IOException ex) {
+            System.out.println("Class requires as input:\nworking_directory,\tmax_width_between_anchors,\t"
+                    + "read_length,\tanchor_size\n");
+            Logger.getLogger(ProcessShuffledCoordinates.class.getName()).log(Level.SEVERE, null, ex);
+        }
+    }
+}
