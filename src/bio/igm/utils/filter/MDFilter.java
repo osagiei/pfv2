@@ -142,17 +142,21 @@ public class MDFilter {
         String line = "";
 
         while ((line = br.readLine()) != null) {
-            Reads read = new Reads(line);
-            int junction = read.getRefJunction() - read.getStart();
-            String[] parsedMd = parseMD(read.getMdfield(), read.getCigar(), junction);
-            if ((checkJunctionSpan(read, parsedMd, span, pid))) {
-                bcR.write(new StringBuilder().append(read.getLine()).append("\n").toString());
-                if (counts.containsKey(read.getTarget())) {
-                    int x = counts.get(read.getTarget()) + 1;
-                    counts.put(read.getTarget(), x);
-                } else {
-                    counts.put(read.getTarget(), 1);
-                }
+            try{
+                    Reads read = new Reads(line);
+                    int junction = read.getRefJunction() - read.getStart();
+                    String[] parsedMd = parseMD(read.getMdfield(), read.getCigar(), junction);
+                    if ((checkJunctionSpan(read, parsedMd, span, pid))) {
+                        bcR.write(new StringBuilder().append(read.getLine()).append("\n").toString());
+                        if (counts.containsKey(read.getTarget())) {
+                            int x = counts.get(read.getTarget()) + 1;
+                            counts.put(read.getTarget(), x);
+                        } else {
+                            counts.put(read.getTarget(), 1);
+                        }
+                    }
+            }catch (Exception e) {
+                System.out.println("Could not parse read details for:" + line);
             }
 
         }

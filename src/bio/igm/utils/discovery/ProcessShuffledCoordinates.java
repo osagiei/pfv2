@@ -85,7 +85,7 @@ public class ProcessShuffledCoordinates {
                 if (!chrL.equalsIgnoreCase(chrR)) {
                     continue;
                 }
-                if (chrL.equalsIgnoreCase("chrM")) {
+                if (chrL.equalsIgnoreCase("chrM") || chrL.equalsIgnoreCase("chrMT")) {
                     continue;
                 }
                 if (!oL.equalsIgnoreCase(oR)) {
@@ -93,6 +93,9 @@ public class ProcessShuffledCoordinates {
                 }
                 if (Math.abs(left - right) > chrom_width) {
                     continue;
+                }
+                if(Math.abs(left -right) > 1000000 || Math.abs(left -right) < 50) {
+                  continue;
                 }
                 if (Integer.parseInt(line.split("\t")[6]) <= 0) {
                     continue;
