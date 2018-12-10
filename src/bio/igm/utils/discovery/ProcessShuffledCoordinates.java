@@ -74,6 +74,7 @@ public class ProcessShuffledCoordinates {
                 String chrR = line.split("\t")[3];
                 String oL = line.split("\t")[2];
                 String oR = line.split("\t")[5];
+                
                 String id = "";
                 String to_print = "";
 
@@ -81,7 +82,12 @@ public class ProcessShuffledCoordinates {
                 int right = Integer.parseInt(line.split("\t")[4]);
                 int tl = 0;
                 int tr = 0;
-
+                
+                // remove mono-nucleotide repeats at junctions
+                if (Integer.parseInt(line.split("\t")[7]) > 1 || Integer.parseInt(line.split("\t")[8]) > 1){
+                  continue;
+                }
+                
                 if (!chrL.equalsIgnoreCase(chrR)) {
                     continue;
                 }
