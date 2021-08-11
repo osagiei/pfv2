@@ -33,10 +33,10 @@ public class FilterTranscriptomicHits {
     }
 
     private void filter_refseq_reads() throws IOException {
-        BufferedReader br = new BufferedReader(new FileReader(this.path + "refseq.sam"));
-        BufferedWriter bw = new BufferedWriter(new FileWriter(this.path + "refseq-filtered-out.sam"));
-        BufferedWriter bw2 = new BufferedWriter(new FileWriter(this.path + "refseq-better.sam"));
-        BufferedWriter bp = new BufferedWriter(new FileWriter(this.path + "refunique.sam"));
+        BufferedReader br = new BufferedReader(new FileReader(this.path + "transcriptomic.sam"));
+        BufferedWriter bw = new BufferedWriter(new FileWriter(this.path + "transcriptomic-filtered-out.sam"));
+        BufferedWriter bw2 = new BufferedWriter(new FileWriter(this.path + "transcriptomic-better.sam"));
+        BufferedWriter bp = new BufferedWriter(new FileWriter(this.path + "transcriptomic-unique.sam"));
         String line = "";
         String id = "";
         Reads r = null;

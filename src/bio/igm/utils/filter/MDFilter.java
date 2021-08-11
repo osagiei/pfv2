@@ -77,13 +77,13 @@ public class MDFilter {
         List<Reads> temp = null;
         Map<String, Integer> counts = new HashMap<String, Integer>();
 
-        BufferedWriter bpR = new BufferedWriter(new FileWriter(path + "PTESReads"));
-        BufferedWriter bw = new BufferedWriter(new FileWriter(path + "ptescounts.tsv"));
-        BufferedWriter bwB = new BufferedWriter(new FileWriter(path + "ptescounts.tsv.bed"));
-        BufferedWriter bwJ = new BufferedWriter(new FileWriter(new StringBuilder().append(path).append("junctions.fa").toString()));
-        BufferedWriter bwP = new BufferedWriter(new FileWriter(new StringBuilder().append(path).append("pid.tsv").toString()));
+        BufferedWriter bpR = new BufferedWriter(new FileWriter(path + "pf-supporting-reads.tab"));
+        BufferedWriter bw = new BufferedWriter(new FileWriter(path + "pf-structure-counts.tsv"));
+        BufferedWriter bwB = new BufferedWriter(new FileWriter(path + "pf-structures.bed"));
+        BufferedWriter bwJ = new BufferedWriter(new FileWriter(new StringBuilder().append(path).append("pf-junctions.fa").toString()));
+        BufferedWriter bwP = new BufferedWriter(new FileWriter(new StringBuilder().append(path).append("pf-pid.tsv").toString()));
 
-        BufferedWriter bf = new BufferedWriter(new FileWriter(path + "junctional-filtered.sam"));
+        BufferedWriter bf = new BufferedWriter(new FileWriter(path + "pf-junctional-filtered.sam"));
         bwP.write("Read_ID\tPTES_ID\tEdit_Distance\tLeftPID\tRightPID\n");
         /*
          * For each read (accepted after previous filters), check that read aligns to
@@ -136,9 +136,9 @@ public class MDFilter {
         BufferedReader br = new BufferedReader(new FileReader(path + "canonical.sam"));
         Map<String, Integer> counts = new HashMap<String, Integer>();
 
-        BufferedWriter bcR = new BufferedWriter(new FileWriter(path + "flanking-canonical-reads.sam"));
-        BufferedWriter bw = new BufferedWriter(new FileWriter(path + "flanking-canonical-counts.tsv"));
-        BufferedWriter bwB = new BufferedWriter(new FileWriter(path + "flanking-canonical-counts.tsv.bed"));
+        BufferedWriter bcR = new BufferedWriter(new FileWriter(path + "pf-flanking-canonical-reads.sam"));
+        BufferedWriter bw = new BufferedWriter(new FileWriter(path + "pf-flanking-canonical-junctions-counts.tsv"));
+        BufferedWriter bwB = new BufferedWriter(new FileWriter(path + "pf-flanking-canonical-junctions.bed"));
         String line = "";
 
         while ((line = br.readLine()) != null) {
