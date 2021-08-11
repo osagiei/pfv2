@@ -2,12 +2,17 @@
 ############################################## check_java_version
 _java=java
 if [[ "$_java" ]]; then
-    VERSION=$("$_java" -Xms500M -Xmx500M -version 2>&1 | awk -F '"' '/version/ {print $2}')
+    # VERSION=$("$_java" -Xms500M -Xmx500M -version 2>&1 | awk -F '"' '/version/ {print $2}')
+    VERSION=$($_java -version 2>&1 \
+          | head -1 \
+          | cut -d'"' -f2 \
+          | sed 's/^1\.//' \
+          | cut -d'.' -f1)
     echo version "$VERSION"
-    if [[ "$VERSION" > "15.0" ]]; then
+    if [[ "$VERSION" -gt 15 ]]; then
         echo ">>> Java version check completed -- okay "
     else
-        echo "Error: Java version check failed, please re-run with version higher than 15.0  -- exiting "
+        echo -e "Error: Java version check failed, please re-run with version higher than 15 \nOr try re-compiling by running 'sh setup.sh' before re-running -- exiting "
         exit 1
     fi
 fi
