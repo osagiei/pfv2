@@ -1,7 +1,3 @@
-/*
- * To change this template, choose Tools | Templates
- * and open the template in the editor.
- */
 package bio.igm.entities;
 
 import java.util.HashMap;
@@ -9,7 +5,7 @@ import java.util.Map;
 
 /**
  *
- * @author osagie
+ * @author osagie izuogu - 05/2013
  */
 public class PTES {
 

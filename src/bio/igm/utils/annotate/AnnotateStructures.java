@@ -1,7 +1,3 @@
-/*
- * To change this template, choose Tools | Templates
- * and open the template in the editor.
- */
 package bio.igm.utils.annotate;
 
 import bio.igm.entities.Structure;
@@ -77,14 +73,12 @@ public class AnnotateStructures {
     }
 
     private void get_canonical_junction_count() throws IOException {
-        //BufferedReader br = new BufferedReader(new FileReader(this.path + "/star_SJ.out.tab"));
         BufferedReader br = new BufferedReader(new FileReader(this.path + "/flanking-canonical-counts.tsv.bed"));
 
         String line = "";
 
         while ((line = br.readLine()) != null) {
             if (!line.split("\t")[0].contains("M")) {
-                //junctions += Integer.parseInt(line.split("\t")[6]);
                 junctions += Integer.parseInt(line.split("\t")[4]);
             }
         }
@@ -121,34 +115,13 @@ public class AnnotateStructures {
         String line = "";
 
         while ((line = br.readLine()) != null) {
-            //String id = line.split("\t")[0] + ":" + line.split("\t")[1] + "-" + line.split("\t")[2];
             String id = line.split("\t")[3] + "_" + line.split("\t")[4];
             exons.put(id, line);
-            //exons_w_ids.put(line.split("\t")[3] + "_" + line.split("\t")[4], line);
         }
         br.close();
         int counter = 0;
         for (Structure s : structures.values()) {
             structure = s;
-            /*
-             if (counter % 500 == 0) {
-             try {
-             Thread.sleep(1000);
-             } catch (InterruptedException ex) {
-             Logger.getLogger(AnnotateStructures.class.getName()).log(Level.SEVERE, null, ex);
-             }
-             } else {
-             Thread t = new Thread(new Runnable() {
-             @Override
-             public void run() {
-             structure.resolve_coords_to_exons(exons);
-                        
-             structures.put(structure.getCoords(), structure);
-             }
-             });
-             t.start();
-             }
-             */
             structure.resolve_coords_to_exons(exons);
 
             structures.put(structure.getCoords(), structure);
@@ -159,12 +132,10 @@ public class AnnotateStructures {
     }
 
     private void get_alus() throws IOException {
-        //BufferedReader br = new BufferedReader(new FileReader(this.alus_bed));
         BufferedReader br = new BufferedReader(new FileReader(this.path + "/alus.bed"));
         String line = "";
 
         while ((line = br.readLine()) != null) {
-            //String id = line.split("\t")[0] + ":" + line.split("\t")[1] + "-" + line.split("\t")[2];
             String id = line.split("\t")[3].split("_")[0];
             if (structures.containsKey(id)) {
                 structure = structures.get(id);
@@ -176,18 +147,11 @@ public class AnnotateStructures {
             }
         }
         br.close();
-        /*
-         for (Structure structure : structures.values()) {
-         structure.feature_search(alus, "alu");
-         structures.put(structure.getCoords(), structure);
-         }
-         * */
 
         System.out.println("Finished annotating structures with alus..");
     }
 
     private void get_mirna() throws IOException {
-        //BufferedReader br = new BufferedReader(new FileReader(this.mirna_bed));
         BufferedReader br = new BufferedReader(new FileReader(this.path + "/mirnas.bed"));
         String line = "";
 
@@ -202,7 +166,6 @@ public class AnnotateStructures {
                         structure = get_exonic_circrna_mirnabs_count(structure);
                     } catch (Exception e) {
                         e.printStackTrace();
-                        //System.out.println(structure);
                     }
 
                 } else {
@@ -217,18 +180,10 @@ public class AnnotateStructures {
         }
         br.close();
 
-        /*
-         for (Structure structure : structures.values()) {
-         structure.feature_search(mirnas, "mirna");
-         structures.put(structure.getCoords(), structure);
-         }
-         * */
         System.out.println("Finished annotating structures with mirna_bs..");
     }
 
     public Structure get_exonic_circrna_mirnabs_count(Structure structure) {
-        //int prime5 = Integer.parseInt(structure.getId().split("\\.")[1]);
-        //int prime3 = Integer.parseInt(structure.getId().split("\\.")[2]);
         int prime5 = structure.getExon5();
         int prime3 = structure.getExon3();
         int size = 0;

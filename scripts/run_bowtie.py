@@ -51,7 +51,11 @@ if __name__ == '__main__':
         required=True,
         help="Sample ID")
 
-    parser.add_argument('--logic_name', dest="logic_name", action="store_true")
+    parser.add_argument(
+        '--logic_name',
+        dest="logic_name",
+        action="store",
+        required=True)
     parser.add_argument(
         '-t',
         '--threads',

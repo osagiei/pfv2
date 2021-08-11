@@ -69,6 +69,8 @@ Note:
       SA
       SAindex
 
+  - Bowtie2 index files with extensions .bt2 required. In the example above, transcriptome-index-bowtie.*.bt2
+
   - PE reads should be pooled into a single FASTQ file with unique read ids.
 
 
@@ -92,7 +94,7 @@ while getopts ":r:i:d:t:g:b:l:p:j:c:S:C:h" opt; do
 	case $opt in
 		r)	FASTQ_READS="$OPTARG";;
 		d)	OUTPUT_DIR="$OPTARG"
-			if [ ! -d "$WORKING_DIR" ]; then
+			if [ ! -d "$OUTPUT_DIR" ]; then
 				echo "Error: The path provided is not a directory, using current directory"
 				OUTPUT_DIR=`pwd`
 
@@ -138,7 +140,7 @@ echo -e ">>> Starting PTESFinder v.2 `date`..\n"
 #################################### initialization
 SEGMENT_SIZE=$(($READ_LENGTH - $MIN_OVERHANG))
 
-WORKING_DIR=${OUTPUT_DIR}/${SAMPLE_ID}
+WORKING_DIR=${OUTPUT_DIR}/${SAMPLE_ID}/
 mkdir -p ${WORKING_DIR}
 
 echo -e "INFO: Started mapping reads to the genome with STAR and Bowtie2 `date` \n"
