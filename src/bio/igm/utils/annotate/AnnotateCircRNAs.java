@@ -1,7 +1,3 @@
-/*
- * To change this template, choose Tools | Templates
- * and open the template in the editor.
- */
 package bio.igm.utils.annotate;
 
 
@@ -37,7 +33,6 @@ public class AnnotateCircRNAs {
     public static void mirnabs_search(String ptespath, String exonspath, String path, String id) throws IOException {
         Map<String, String> exons = get_exons(exonspath);
         Map<String, String> structures = get_bed_like(ptespath);
-        //Map<String, String> mirna = get_bed_like(mirnapath);
 
         for (String s : structures.keySet()) {
             structures.put(s, get_mirnabs_count(structures.get(s), exons));

@@ -1,4 +1,3 @@
-
 package bio.igm.entities;
 
 import java.util.regex.Matcher;
@@ -6,7 +5,7 @@ import java.util.regex.Pattern;
 
 /**
  *
- * @author Osagie
+ * @author Osagie - 05/2013
  */
 public class Reads {
 
