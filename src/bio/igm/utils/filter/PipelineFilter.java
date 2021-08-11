@@ -36,17 +36,17 @@ public class PipelineFilter {
     
     String path;
     boolean filters = true;
-    boolean refseq = true;
+    boolean transcriptomic = true;
     boolean genomic = true;
     public static Logger LOG;
 
-    public PipelineFilter(String _path, int _jspan, double _pid, boolean _filters, boolean _genomic, boolean _refseq) throws IOException {
+    public PipelineFilter(String _path, int _jspan, double _pid, boolean _filters, boolean _genomic, boolean _transcriptomic) throws IOException {
         this.path = _path;
         this.filters = _filters;
         this.pid = _pid;
         this.jspan = _jspan;
         this.filters = _filters;
-        this.refseq = _refseq;
+        this.transcriptomic = _transcriptomic;
         this.genomic = _genomic;
         File f = new File(_path);
 
@@ -65,12 +65,12 @@ public class PipelineFilter {
 
 
         if (this.filters) { //default 
-            this.refseq = false;
+            this.transcriptomic = false;
             this.genomic = false;
            
             processed_ptes_reads = apply_filters();
 
-        } else if (this.genomic || this.refseq) { //using default settings, both booleans should be false here
+        } else if (this.genomic || this.transcriptomic) { //using default settings, both booleans should be false here
             
             processed_ptes_reads = apply_filters();
 
@@ -119,7 +119,7 @@ public class PipelineFilter {
 
                 LOG.info("[ Applying Genomic Filter Only.. ");
                 temp = new FilterGenomicHits(path).getReads();
-            } else if (this.refseq) { // default = false
+            } else if (this.transcriptomic) { // default = false
                 LOG.info("Applying Transcriptomic Filter Only.. ");
                 return new FilterTranscriptomicHits(temp, path).getReads(); //temp here contains either raw ptes reads or reads already filtered using genomic filter
             } else {
@@ -140,7 +140,7 @@ public class PipelineFilter {
 
             LOG.info("[ Applying Genomic Filter Only.. ");
             temp = new FilterGenomicHits(path).getReads();
-        } else if (this.refseq) { // default = false
+        } else if (this.transcriptomic) { // default = false
             LOG.info("Applying Transcriptomic Filter Only.. ");
             return new FilterTranscriptomicHits(temp, path).getReads(); //temp here contains either raw ptes reads or reads already filtered using genomic filter
         } else {
@@ -162,7 +162,7 @@ public class PipelineFilter {
         double _pid = 0.85;
         boolean all_filters = true;
         boolean genomic = true;
-        boolean refseq = true;
+        boolean transcriptomic = true;
 
         try {
 
@@ -170,13 +170,13 @@ public class PipelineFilter {
             _pid = Double.parseDouble(args[2]);
             all_filters = args[3].equalsIgnoreCase("0") ? false : true;
             genomic = args[4].equalsIgnoreCase("0") ? false : true;
-            refseq = args[5].equalsIgnoreCase("0") ? false : true;
+            transcriptomic = args[5].equalsIgnoreCase("0") ? false : true;
         } catch (Exception e) {
             LOG.severe("\nThere are errors in your input parameters. Please re-check before running again.\nProceeding with default values:\n"
                     + ">>> Run all filters = Yes\n\t PID = 0.85 \n\t Junction Span = 8\n\n");
         }
         try {
-            new PipelineFilter(path, _jspan, _pid, all_filters, genomic, refseq);
+            new PipelineFilter(path, _jspan, _pid, all_filters, genomic, transcriptomic);
         } catch (IOException ex) {
             LOG.log(Level.SEVERE, null, ex);
         }
