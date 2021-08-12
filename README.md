@@ -1,4 +1,4 @@
-# PFv2: a modified computational method to identify post-transcriptional exon shuffling (PTES) and baksplice events
+# PFv2: annotation-free computational method to identify post-transcriptional exon shuffling (PTES) events
 
 LINKS:
 
