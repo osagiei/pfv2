@@ -71,7 +71,7 @@ public class GenerateSequenceConstructsGenome {
           for(String s : seqs){
             if (StringUtils.isNotBlank(s)) {
                 String[] oneSeq = s.trim().split("\n");
-                String id = oneSeq[0];
+                String id = oneSeq[0].split(" ")[0];
 
                 seq = StringUtils.join(oneSeq, "", 1, oneSeq.length);
                 genome.put(id, seq.toUpperCase());
