@@ -26,7 +26,7 @@ definitions:
       name: pfv2-k8s
       work_queue_name: default
       job_variables:
-        image: conidiobolus/pfv2:2.2.0
+        image: conidiobolus/pfv2:2.2.1
         namespace: pfv2
         service_account_name: pfv2
         # STAR holds the whole genome index resident. Under-requesting here gets the pod

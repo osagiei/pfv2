@@ -22,7 +22,7 @@ spec:
         fsGroup: 1000
       initContainers:
         - name: validate
-          image: conidiobolus/pfv2:2.2.0
+          image: conidiobolus/pfv2:2.2.1
           args:
             - validate
             - --fastq=/reads/sample1.fq.gz
@@ -37,7 +37,7 @@ spec:
             - { name: tmp, mountPath: /tmp }
       containers:
         - name: pfv2
-          image: conidiobolus/pfv2:2.2.0
+          image: conidiobolus/pfv2:2.2.1
           args:
             - run
             - -i

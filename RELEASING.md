@@ -3,11 +3,23 @@
 Steps that need a person, either because they publish something irreversible or because they
 need credentials. Everything else is `make build && make smoke && make e2e`.
 
-## Still open
+## The STAR index is not on Zenodo, by decision
 
-- Publish Zenodo draft **22939780** once its upload finishes, so the reference concept DOI
-  resolves to a version that actually contains the STAR index.
-- Rotate the Zenodo token (below).
+The published reference record carries the genome FASTA, the Ensembl cDNA and both Bowtie2
+indexes. It does not carry the STAR index, and that is now the intended shape rather than an
+outstanding task.
+
+Repeated upload attempts failed: Zenodo's gateway returned 502 on a 23 GB archive, then on
+4 GB parts, then on 2 GB parts, and a throughput probe measured 877 KB/s with a 100 MB PUT
+timing out at 90 seconds. At that rate no usefully sized part completes inside the proxy's
+window. Draft 22939780 exists as a new version and is clean, if the index is ever worth
+adding when throughput recovers; `ops/zenodo_upload.sh` skips files already uploaded, so
+resuming costs only what is missing.
+
+Shipping the index was always the weaker option anyway. A STAR index records the genome
+format version that wrote it and STAR refuses one it cannot read, so a published index ties
+users to a range of STAR releases and silently expires. `ops/build_indexes.sh` builds it from
+the published genome in about an hour, and always matches the STAR actually installed.
 
 ## Rotate the Zenodo token before release
 
@@ -31,7 +43,7 @@ Revoke at https://zenodo.org/account/settings/applications/tokens/ and put the r
         completes; the concept DOI then resolves to it and the documented commands need no
         change.
 
-- [x] **Container image published.** `conidiobolus/pfv2:2.2.0` and `:latest`, public,
+- [x] **Container image published.** `conidiobolus/pfv2:2.2.1` and `:latest`, public,
       `linux/amd64` and `linux/arm64`. Verified by an anonymous pull on a host with no Docker
       credentials, and both variants pass `ptesfinder selftest`.
 
@@ -40,7 +52,7 @@ Revoke at https://zenodo.org/account/settings/applications/tokens/ and put the r
       ```bash
       docker buildx create --use --name multiarch --driver docker-container
       make image
-      docker buildx imagetools inspect conidiobolus/pfv2:2.2.0
+      docker buildx imagetools inspect conidiobolus/pfv2:2.2.1
       ```
 
 ## Release checklist

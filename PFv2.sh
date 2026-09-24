@@ -11,7 +11,7 @@ fi
 
 set -euo pipefail
 
-readonly VERSION="2.2.0"
+readonly VERSION="2.2.1"
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 ########################################################################## defaults

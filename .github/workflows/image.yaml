@@ -17,7 +17,11 @@ permissions:
   contents: read
 
 jobs:
+  # Publishing is optional. Without Docker Hub credentials the job is skipped rather than
+  # failed: a release should not be marked red because an optional step has no secrets, and
+  # an image can always be pushed by hand with `make image`.
   publish:
+    if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -55,3 +59,15 @@ jobs:
             ${{ vars.DOCKERHUB_NAMESPACE || 'conidiobolus' }}/pfv2:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # Says plainly why nothing was published, instead of leaving a silently absent job.
+  skipped:
+    if: ${{ secrets.DOCKERHUB_USERNAME == '' || secrets.DOCKERHUB_TOKEN == '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Explain why no image was published
+        run: |
+          echo "::notice title=Image not published::DOCKERHUB_USERNAME and DOCKERHUB_TOKEN are \
+          not set on this repository, so no image was pushed. Set them under Settings > \
+          Secrets and variables > Actions to publish on future tags, or push by hand with \
+          'make image'. An image can also be pushed by hand."
