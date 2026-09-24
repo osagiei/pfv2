@@ -50,7 +50,8 @@ Revoke at https://zenodo.org/account/settings/applications/tokens/ and put the r
 - [ ] `make e2e` — full run through the real aligners against the committed fixture
 - [ ] Commit the rebuilt `PFv2.jar`; CI fails when its classes do not match `src/`
 - [ ] `CHANGELOG.md` has an entry for the version in `PFv2.sh`
-- [ ] Tag `v<version>`, which is what triggers the image workflow
+- [ ] Tag `<version>` (bare semver, matching the existing `2.0.0` tag), which triggers the
+      image workflow; a `v`-prefixed tag works too
 - [ ] Set `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` as repository secrets, and
       `DOCKERHUB_NAMESPACE` as a variable if it is not `conidiobolus`
 
