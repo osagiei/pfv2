@@ -4,7 +4,7 @@
 #
 # The published reference record carries the sequences and the Bowtie2 indexes. The STAR
 # index is not always published, because it is tens of gigabytes that barely compress and it
-# is tied to the STAR genome format version that wrote it — an index built here always
+# is tied to the STAR genome format version that wrote it - an index built here always
 # matches the STAR you actually have.
 #
 #   bash ops/build_indexes.sh \

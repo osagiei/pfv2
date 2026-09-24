@@ -6,7 +6,7 @@ A correctness pass over the filter and construct stages, plus container and clus
 runnables and an input validation step. Several fixes change results; each is called out
 below and `-L` restores the previous behaviour where one exists.
 
-### Fixed — these change results
+### Fixed - these change results
 
 - **The junction offset sat one base before the construct seam.** The anchor intervals are
   inclusive at both ends, so an arm of *n* bases spans `stop - start + 1`, but the offset
@@ -29,7 +29,7 @@ below and `-L` restores the previous behaviour where one exists.
 - **Competing alignments are ranked by Bowtie2's `AS` tag rather than by MD and NM.**
   Soft-clipped bases contribute to neither MD nor NM, so a short perfect genomic fragment
   looked flawless to the old comparison and beat a full-length construct alignment carrying
-  two mismatches — discarding true positives. `AS` accounts for clipping and gap penalties.
+  two mismatches - discarding true positives. `AS` accounts for clipping and gap penalties.
   When either alignment lacks `AS` the comparison falls back to the old tags. `-L` selects
   the old metric.
 
@@ -63,7 +63,7 @@ below and `-L` restores the previous behaviour where one exists.
 - **Optional SAM tags are located by prefix** (`MD:Z:`, `NM:i:`, `AS:i:`) rather than by
   offset from the end of the line.
 
-### Changed — the strand column
+### Changed - the strand column
 
 Backsplice junctions are now reported on the strand their splice motif implies, rather than
 the strand STAR's chimeric segment aligned to. An unstranded library aligns a back-splicing
@@ -91,7 +91,7 @@ junctions from the same run.
   `validate`, `fetch-references`,
   `selftest` and `version` subcommands. It is also the container image's entrypoint, so the
   subcommands behave identically from a checkout, from an install on `PATH`, or inside the
-  image — previously they existed only inside the image and a native user had to call the
+  image - previously they existed only inside the image and a native user had to call the
   helper scripts by path. Bare pipeline flags still work without the `run` subcommand, so
   existing `PFv2.sh` invocations are unaffected. `make install` symlinks it into
   `PREFIX/bin` under both names. `version` names the release explicitly, since "PTESFinder"
@@ -155,7 +155,7 @@ junctions from the same run.
 
 ## 2.1.0
 
-### Fixed — these change results
+### Fixed - these change results
 
 - **Junction span filter rejected most spanning reads.** The guard in
   `MDFilter.checkJunctionSpan` compared the read-relative junction offset against
@@ -231,7 +231,7 @@ junctions from the same run.
 ### Removed
 
 - `apache-lib/` (duplicate of `lib/`), `dist/`, `build/`, the committed `classes/`
-  tree (stale — it predated the STAR rewrite), the duplicate `scripts/PFv2.jar`,
+  tree (stale - it predated the STAR rewrite), the duplicate `scripts/PFv2.jar`,
   and two 2017 Dropbox conflicted-copy files under `nbproject/`.
 
 ### Notes

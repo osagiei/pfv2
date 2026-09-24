@@ -1,6 +1,6 @@
 # PFv2
 
-PTESFinder v2 — an annotation-free computational method to identify
+PTESFinder v2 - an annotation-free computational method to identify
 post-transcriptional exon shuffling (PTES) / backsplice junctions from RNA-seq data.
 
 ## Changes from v1
@@ -56,10 +56,10 @@ loads unchanged under the aarch64 binaries.
 
 ## Running on a cluster
 
-- **Kubernetes** — `deploy/k8s` is a Helm chart rendering one Job per sample, with
+- **Kubernetes** - `deploy/k8s` is a Helm chart rendering one Job per sample, with
   validation as an init container so a bad reference fails in seconds rather than hours.
   See [deploy/k8s/README.md](deploy/k8s/README.md).
-- **Prefect** — `deploy/prefect` runs each stage as a Prefect task, so a retry resumes
+- **Prefect** - `deploy/prefect` runs each stage as a Prefect task, so a retry resumes
   from the failed stage instead of repeating the alignment. See
   [deploy/prefect/README.md](deploy/prefect/README.md).
 
@@ -73,8 +73,8 @@ ptesfinder validate --fastq reads.fq.gz --genome genome.fa --star-index star/ --
 ```
 
 It checks FASTQ structure and gzip integrity, the read length against `-l`, that the STAR
-index is complete, that both Bowtie2 indexes exist and are readable, and — the check that
-matters most — that the sequence names in the genome FASTA, the STAR index and the Bowtie2
+index is complete, that both Bowtie2 indexes exist and are readable, and - the check that
+matters most - that the sequence names in the genome FASTA, the STAR index and the Bowtie2
 index all agree. `chr1` and `1` are not interchangeable: mixing them produces an empty
 result many hours later, which looks like a biological finding rather than a
 misconfiguration.
@@ -136,7 +136,7 @@ ptesfinder fetch-references 10.5281/zenodo.22929143 --latest -d /data/refs --onl
 ```
 
 If the STAR index is not in the record, or you would rather match the STAR you have, build
-it from the published genome — an index is tied to the genome format version that wrote it,
+it from the published genome - an index is tied to the genome format version that wrote it,
 so a locally built one can never be the wrong vintage:
 
 ```bash
@@ -156,8 +156,8 @@ bash test/e2e/run.sh --zenodo
 ```
 
 `fetch-references` accepts a record id, a version DOI, a concept DOI with `--latest`, or a
-record URL. A file whose MD5 does not match is deleted rather than used — a truncated genome
-otherwise produces a run that looks fine and is not — and a verified copy already on disk is
+record URL. A file whose MD5 does not match is deleted rather than used - a truncated genome
+otherwise produces a run that looks fine and is not - and a verified copy already on disk is
 skipped, so an interrupted fetch can simply be re-run. Files are recognised by role from
 their names (`genome_fasta`, `star_index`, `bowtie2_genome`, `bowtie2_transcriptome`,
 `annotation_gtf`), and `--only` takes a role or a file name, so the STAR index can be
@@ -167,15 +167,15 @@ Pin a version DOI for anything whose results have to be reproducible. A concept 
 `--latest` follows the newest version, which is what you want for "give me the current
 reference" and not what you want in a methods section.
 
-Zenodo's default quota is 50 GB per record, so the ~33 GB reference fits — but only just, and
+Zenodo's default quota is 50 GB per record, so the ~33 GB reference fits - but only just, and
 adding a second assembly to the same record would not.
 
 Two things to check before using a prebuilt reference, because getting either wrong costs
 hours and does not raise an error:
 
-- **Sequence naming.** The published GRCm38 set is Ensembl-named: contigs are `1`…`19`, `X`,
+- **Sequence naming.** The published GRCm38 set is Ensembl-named: contigs are `1`...`19`, `X`,
   `Y`, with no `chr` prefix. It is **not** interchangeable with a UCSC mm10 reference, whose
-  contigs are `chr1`…`chr19`. Mixing conventions produces an empty result, not an error.
+  contigs are `chr1`...`chr19`. Mixing conventions produces an empty result, not an error.
   `ptesfinder validate` compares the names across the genome FASTA, the STAR index and the
   Bowtie2 index and fails on a mismatch.
 - **Aligner versions.** A STAR index is only loadable by releases sharing its genome format
@@ -265,7 +265,7 @@ results table that records only the name cannot be reproduced.
 - Pre-built Bowtie2 genome index
 - Pre-built Bowtie2 transcriptome index
 
-Sequence names in the genome FASTA must match those used to build the STAR index —
+Sequence names in the genome FASTA must match those used to build the STAR index -
 `chr1` and `1` are not interchangeable. Paired-end reads must be pooled into a
 single FASTQ with unique read ids.
 
@@ -300,8 +300,8 @@ script, so it only needs passing when the code lives somewhere else.
 | Flag | Default | Meaning |
 |------|---------|---------|
 | `-c` | script directory | PFv2 code directory |
-| `-p` | 0.85 | minimum percent identity per flank, 0–1; ideal 0.60–0.95 |
-| `-j` | 8 | junction span, even integer; ideal 4–14 |
+| `-p` | 0.85 | minimum percent identity per flank, 0-1; ideal 0.60-0.95 |
+| `-j` | 8 | junction span, even integer; ideal 4-14 |
 | `-C` | 1000000 | maximum backsplice genomic span, bp |
 | `-M` | 50 | minimum backsplice genomic span, bp |
 | `-n` | 16 | threads for STAR and Bowtie2 |
@@ -388,7 +388,7 @@ MIT. See [LICENSE](LICENSE).
 - Izuogu OG, Alhasan AA, Alafghani HM, Santibanez-Koref M, Elliott DJ, Jackson MS.
   *PTESFinder: a computational method to identify post-transcriptional exon shuffling
   (PTES) events.* BMC Bioinformatics 17:31 (2016).
-  [PMC4711006](https://pmc.ncbi.nlm.nih.gov/articles/PMC4711006/) ·
+  [PMC4711006](https://pmc.ncbi.nlm.nih.gov/articles/PMC4711006/) |
   [doi:10.1186/s12859-016-0881-4](https://doi.org/10.1186/s12859-016-0881-4)
   Source: https://sourceforge.net/projects/ptesfinder-v1/
 
@@ -397,7 +397,7 @@ MIT. See [LICENSE](LICENSE).
 - Vromman M, Anckaert J, Bortoluzzi S, ... Izuogu O, Jackson MS, Santibanez-Koref M, ...
   Vandesompele J, Volders PJ. *Large-scale benchmarking of circRNA detection tools reveals
   large differences in sensitivity but not in precision.* Nature Methods 20(8):1159-1169
-  (2023). [PMID 37443337](https://pubmed.ncbi.nlm.nih.gov/37443337/) ·
+  (2023). [PMID 37443337](https://pubmed.ncbi.nlm.nih.gov/37443337/) |
   [doi:10.1038/s41592-023-01944-6](https://doi.org/10.1038/s41592-023-01944-6)
 
 **Applications**
@@ -405,12 +405,12 @@ MIT. See [LICENSE](LICENSE).
 - Grassi L, Izuogu OG, Jorge NAN, et al. *Cell type-specific novel long non-coding RNA and
   circular RNA in the BLUEPRINT hematopoietic transcriptomes atlas.* Haematologica
   106(10):2613-2623 (2021).
-  [PMC8485671](https://pmc.ncbi.nlm.nih.gov/articles/PMC8485671/) ·
+  [PMC8485671](https://pmc.ncbi.nlm.nih.gov/articles/PMC8485671/) |
   [doi:10.3324/haematol.2019.238147](https://doi.org/10.3324/haematol.2019.238147)
 
 - Whittle B, Izuogu O, Lowes H, et al. *Early-stage idiopathic Parkinson's disease is
   associated with reduced circular RNA expression.* npj Parkinson's Disease 10:25 (2024).
-  [nature.com/articles/s41531-024-00636-y](https://www.nature.com/articles/s41531-024-00636-y) ·
+  [nature.com/articles/s41531-024-00636-y](https://www.nature.com/articles/s41531-024-00636-y) |
   [doi:10.1038/s41531-024-00636-y](https://doi.org/10.1038/s41531-024-00636-y)
 
 ## Releasing

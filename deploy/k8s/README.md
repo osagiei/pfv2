@@ -38,7 +38,7 @@ For each sample, one Job with:
 1. an optional `fetch-reference` init container that pulls a prebuilt reference from a
    Zenodo record and verifies each file's published MD5;
 2. a `validate` init container that checks the reads, the genome FASTA and both index sets,
-   and in particular that their sequence names agree — a `chr1` versus `1` mismatch
+   and in particular that their sequence names agree - a `chr1` versus `1` mismatch
    otherwise produces an empty result hours later;
 3. the `pfv2` container, which runs the pipeline with validation disabled because it has
    already run.

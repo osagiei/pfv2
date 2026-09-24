@@ -15,7 +15,7 @@ The token currently in `.env` should be revoked and replaced. During the first r
 upload it was passed to `curl` with `-H`, which puts it in the process argument list where
 `ps` exposes it to every other user on a shared machine. The upload ran on a shared host, so
 treat it as disclosed. `ops/zenodo_upload.sh` now feeds the header through `curl --config` on
-stdin instead, so argv never holds it — but that does not undo the earlier exposure.
+stdin instead, so argv never holds it - but that does not undo the earlier exposure.
 
 Revoke at https://zenodo.org/account/settings/applications/tokens/ and put the replacement in
 `.env`, which is gitignored.
@@ -23,8 +23,8 @@ Revoke at https://zenodo.org/account/settings/applications/tokens/ and put the r
 ## Remaining steps
 
 - [x] **Zenodo records published.**
-      - test data: [10.5281/zenodo.22929132](https://doi.org/10.5281/zenodo.22929132) — complete
-      - reference: [10.5281/zenodo.22929143](https://doi.org/10.5281/zenodo.22929143) — version 22929144 was
+      - test data: [10.5281/zenodo.22929132](https://doi.org/10.5281/zenodo.22929132) - complete
+      - reference: [10.5281/zenodo.22929143](https://doi.org/10.5281/zenodo.22929143) - version 22929144 was
         published without the STAR index, because that upload had failed with a 502 before
         publication. A published record's files cannot be changed, so draft **22939780** is a
         new version carrying the STAR index as 4 GB parts. Publish it once the upload
@@ -45,9 +45,9 @@ Revoke at https://zenodo.org/account/settings/applications/tokens/ and put the r
 
 ## Release checklist
 
-- [ ] `make build` — 101 unit checks pass and the jar is repackaged
-- [ ] `make smoke` — stages 2, 3 and 5 against the synthetic dataset
-- [ ] `make e2e` — full run through the real aligners against the committed fixture
+- [ ] `make build` - 101 unit checks pass and the jar is repackaged
+- [ ] `make smoke` - stages 2, 3 and 5 against the synthetic dataset
+- [ ] `make e2e` - full run through the real aligners against the committed fixture
 - [ ] Commit the rebuilt `PFv2.jar`; CI fails when its classes do not match `src/`
 - [ ] `CHANGELOG.md` has an entry for the version in `PFv2.sh`
 - [ ] Tag `<version>` (bare semver, matching the existing `2.0.0` tag), which triggers the
