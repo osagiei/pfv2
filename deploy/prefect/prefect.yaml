@@ -1,0 +1,80 @@
+# Prefect 3 deployments for PFv2.
+#
+# Prefect orchestrates; the work pool decides where the work lands. The flow itself only
+# sequences the stages, so the same flow runs as local subprocesses, in a container, or on
+# a cluster without changing.
+#
+#   prefect work-pool create pfv2 --type process
+#   prefect deploy --prefect-file deploy/prefect/prefect.yaml
+#   prefect deployment run 'pfv2/pfv2-local' --param sample_id=S01 --param ...
+#
+name: pfv2
+prefect-version: 3.0.0
+
+build: null
+push: null
+pull:
+  - prefect.deployments.steps.set_working_directory:
+      directory: /opt/pfv2
+
+definitions:
+  work_pools:
+    process: &process
+      name: pfv2
+      work_queue_name: default
+    kubernetes: &kubernetes
+      name: pfv2-k8s
+      work_queue_name: default
+      job_variables:
+        image: conidiobolus/pfv2:2.2.0
+        namespace: pfv2
+        service_account_name: pfv2
+        # STAR holds the whole genome index resident. Under-requesting here gets the pod
+        # OOM-killed partway through mapping, which looks like a tool failure.
+        cpu_request: "16"
+        memory_request: "40Gi"
+
+  parameters: &defaults
+    junction_span: 8
+    pid: 0.85
+    max_genomic_span: 1000000
+    min_genomic_span: 50
+    filters: both
+    legacy: false
+    aligned_strand: false
+
+deployments:
+  # Workstation or a single large server, running the stages as bounded subprocesses.
+  - name: pfv2-local
+    entrypoint: deploy/prefect/flow.py:pfv2_flow
+    work_pool: *process
+    tags: [pfv2, executor:local]
+    description: Run PFv2 on one sample as local subprocesses.
+    parameters:
+      <<: *defaults
+      threads: 16
+      java_heap: 20G
+
+  # Kubernetes, one pod per flow run. Reads, references and output come from volumes the
+  # work pool's base job template mounts.
+  - name: pfv2-kubernetes
+    entrypoint: deploy/prefect/flow.py:pfv2_flow
+    work_pool: *kubernetes
+    tags: [pfv2, executor:kubernetes]
+    description: Run PFv2 on one sample in a Kubernetes pod.
+    parameters:
+      <<: *defaults
+      threads: 16
+      java_heap: 20G
+
+  # A large shared-memory host: more threads, and a heap sized for a mammalian genome held
+  # in memory by the construct generator.
+  - name: pfv2-highmem
+    entrypoint: deploy/prefect/flow.py:pfv2_flow
+    work_pool: *process
+    tags: [pfv2, executor:local, profile:highmem]
+    description: Run PFv2 with a thread count and heap sized for a large host.
+    parameters:
+      <<: *defaults
+      threads: 32
+      java_heap: 48G

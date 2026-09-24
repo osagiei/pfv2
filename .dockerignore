@@ -1,0 +1,20 @@
+.git
+.gitignore
+build/
+classes/
+dist/
+nbproject/
+**/__pycache__/
+*.pyc
+PF/
+*.sam
+*.bam
+*.bt2
+*.bt2l
+deploy/
+ops/
+# The end-to-end fixture is 8 MB and only the smoke test runs inside the image.
+test/e2e/
+RELEASING.md
+._*
+.DS_Store

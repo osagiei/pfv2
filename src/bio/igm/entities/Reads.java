@@ -4,10 +4,24 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
+ * A single alignment record parsed from a SAM file.
+ *
+ * Targets vary between SAM files, e.g. NM_006699.3.2, chr12 or
+ * gi|329999235|ref|NM_....  For the PTES and canonical construct SAM files the
+ * reference name carries the junction offset, e.g.
+ * {@code chr4:144464659-144465123_+:41:GGTC}.
  *
  * @author Osagie - 05/2013
  */
 public class Reads {
+
+    /** Number of mandatory fields in a SAM alignment line. */
+    public static final int MANDATORY_FIELDS = 11;
+
+    /** Sentinel for an alignment that carries no AS tag. */
+    public static final int NO_SCORE = Integer.MIN_VALUE;
+
+    private static final Pattern DIGITS = Pattern.compile("[0-9]+");
 
     String id;
     int orientation;
@@ -32,49 +46,147 @@ public class Reads {
     String genAlignment;
     String leftpid;
     String rightpid;
+    int alignmentScore = NO_SCORE;
 
     /**
-     * Expects lines from SAM files
-     * @param line
+     * Expects lines from SAM files.
+     *
+     * @param line a SAM alignment line
+     * @throws IllegalArgumentException if the line is not a usable alignment
      */
     public Reads(String line) {
         this.line = line;
         setAttributes(line);
     }
-    
-    /*
-     * NOTE: Targets vary between SAM files. Eg. NM_006699.3.2, chr12 and
-     * gi|329999235|ref|NM_....
-     */
+
     private void setAttributes(String line) {
         String[] attributes = line.split("\t");
+        if (attributes.length < MANDATORY_FIELDS) {
+            throw new IllegalArgumentException(
+                    "SAM line has " + attributes.length + " fields, expected at least " + MANDATORY_FIELDS);
+        }
+
+        String md = findTag(attributes, "MD:Z:");
+        String nm = findTag(attributes, "NM:i:");
+        if (md == null || nm == null) {
+            throw new IllegalArgumentException("SAM line is missing the MD:Z: and/or NM:i: optional tag");
+        }
+
         setId(attributes[0]);
-        setOrientation(Integer.parseInt(attributes[1]));
+        setOrientation(parseIntField(attributes[1], "FLAG"));
         setTargetRaw(attributes[2]);
         setTarget(attributes[2]);
-
-        setStart(Integer.parseInt(attributes[3]));
+        setStart(parseIntField(attributes[3], "POS"));
         setCigar(attributes[5]);
-        setMdfield(attributes[(attributes.length - 2)]);
-        setAligned(attributes[(attributes.length - 2)]);
-        setEditDistance(attributes[(attributes.length - 3)]);
+        setMdfield(md);
+        setAligned(md);
+        setEditDistance(nm);
         setQuality(attributes[10]);
-        String[] temp = attributes[2].split(":");
-        
-        setRefJunction(Integer.parseInt(temp[temp.length - 2]));
+        setRefJunction(parseRefJunction(attributes[2]));
         setSequence(attributes[9]);
-        
+        this.alignmentScore = alignmentScore(attributes);
     }
 
-    private static String processID(String string) {
-        String id = "";
-        String[] target = string.split("ref");
-        id = target[1].replaceAll("\\..*|[^a-zA-Z0-9_]", "");
-        return id;
+    /**
+     * Locates an optional SAM tag by its {@code TAG:TYPE:} prefix rather than by
+     * column position.  Bowtie2 happens to emit MD and NM in a fixed order, but
+     * the SAM specification does not guarantee it and other aligners do not.
+     *
+     * @param fields the tab-split SAM line
+     * @param prefix the tag prefix to look for, e.g. {@code "MD:Z:"}
+     * @return the whole tag field, or null when absent
+     */
+    public static String findTag(String[] fields, String prefix) {
+        for (int i = MANDATORY_FIELDS; i < fields.length; i++) {
+            if (fields[i].startsWith(prefix)) {
+                return fields[i];
+            }
+        }
+        return null;
     }
 
-    
-  
+    /**
+     * Sums the matched-base run lengths encoded in an MD tag.
+     *
+     * @param mdTag a full MD tag, e.g. {@code MD:Z:31A68}
+     * @return the number of aligned (matched) nucleotides
+     */
+    public static int alignedFromMd(String mdTag) {
+        int total = 0;
+        String body = mdTag.startsWith("MD:Z:") ? mdTag.substring(5) : mdTag;
+        Matcher m = DIGITS.matcher(body);
+        while (m.find()) {
+            total += Integer.parseInt(m.group());
+        }
+        return total;
+    }
+
+    /**
+     * Extracts the numeric value of an {@code NM:i:} tag.
+     *
+     * @param nmTag a full NM tag, e.g. {@code NM:i:2}
+     * @return the edit distance
+     */
+    public static int editDistanceFromNm(String nmTag) {
+        return Integer.parseInt(nmTag.substring(5));
+    }
+
+    private static int parseIntField(String value, String name) {
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("SAM field " + name + " is not an integer: '" + value + "'");
+        }
+    }
+
+    /**
+     * Reads the junction offset out of a construct reference name of the form
+     * {@code <chrom>:<start>-<stop>_<strand>:<junction>:<signal>}.
+     */
+    private static int parseRefJunction(String referenceName) {
+        String[] temp = referenceName.split(":");
+        if (temp.length < 2) {
+            throw new IllegalArgumentException(
+                    "Reference name '" + referenceName + "' does not carry a junction offset; "
+                    + "expected <chrom>:<start>-<stop>_<strand>:<junction>:<signal>");
+        }
+        return parseIntField(temp[temp.length - 2], "junction offset");
+    }
+
+    /**
+     * @return the edit distance of this alignment as an integer
+     */
+    public int getNM() {
+        return editDistanceFromNm(this.editDistance);
+    }
+
+    /**
+     * Bowtie2's alignment score, which unlike the MD and NM tags accounts for soft
+     * clipping and gap penalties.
+     *
+     * @return the AS tag value, or {@link #NO_SCORE} when the alignment carries none
+     */
+    public int getAlignmentScore() {
+        return this.alignmentScore;
+    }
+
+    /**
+     * Extracts the numeric value of an {@code AS:i:} tag.
+     *
+     * @param fields the tab-split SAM line
+     * @return the alignment score, or {@link #NO_SCORE} when absent or unparseable
+     */
+    public static int alignmentScore(String[] fields) {
+        String tag = findTag(fields, "AS:i:");
+        if (tag == null) {
+            return NO_SCORE;
+        }
+        try {
+            return Integer.parseInt(tag.substring(5));
+        } catch (NumberFormatException e) {
+            return NO_SCORE;
+        }
+    }
 
     @Override
     public boolean equals(Object obj) {
@@ -100,8 +212,6 @@ public class Reads {
         hash = 59 * hash + (this.target != null ? this.target.hashCode() : 0);
         return hash;
     }
-
-    
 
     /**
      *
@@ -349,7 +459,8 @@ public class Reads {
 
     /**
      *
-     * @return
+     * @return the six bases centred on the junction, or null when the junction
+     *         sits too close to either end of the read to extract them
      */
     public String getHex() {
         return this.hex;
@@ -360,20 +471,30 @@ public class Reads {
      * @param hex
      */
     public void setHex(String hex) {
-        int pos = getRefJunction() > getStart() + 3 ? getRefJunction() - getStart() + 1 + getJunctionShift() : getRefJunction() + getJunctionShift();
-        this.hex = hex.substring(pos - 3, pos + 3);
+        this.hex = substringOrNull(hex, junctionPosition());
     }
 
     /**
+     * Records the six bases centred on the junction.  Leaves the value null when
+     * the junction is too close to either end of the read for the window to fit.
      *
-     * @param shift
+     * @param shift indel shift applied to the junction offset
      */
     public void setHex(int shift) {
-        try {
-            int pos = getRefJunction() > getStart() + 3 ? getRefJunction() - getStart() + 1 + getJunctionShift() : getRefJunction() + getJunctionShift();
-            this.hex = getSequence().substring(pos - 3, pos + 3);
-        } catch (Exception e) {
+        this.hex = substringOrNull(getSequence(), junctionPosition());
+    }
+
+    private int junctionPosition() {
+        return getRefJunction() > getStart() + 3
+                ? getRefJunction() - getStart() + 1 + getJunctionShift()
+                : getRefJunction() + getJunctionShift();
+    }
+
+    private static String substringOrNull(String source, int pos) {
+        if (source == null || pos < 3 || pos + 3 > source.length()) {
+            return null;
         }
+        return source.substring(pos - 3, pos + 3);
     }
 
     /**
@@ -385,19 +506,12 @@ public class Reads {
     }
 
     /**
-     * Method calculates number of aligned nucleotides from
-     * MD field
-     * @param aligned
+     * Calculates the number of aligned nucleotides from the MD field.
+     *
+     * @param aligned a full MD tag
      */
     public void setAligned(String aligned) {
-        String pattern = "[0-9]+";
-
-        Pattern p = Pattern.compile(pattern);
-        Matcher m = p.matcher(aligned.split(":")[2]);
-
-        while (m.find()) {
-            this.aligned += Integer.parseInt(m.group());
-        }
+        this.aligned = alignedFromMd(aligned);
     }
 
     /**

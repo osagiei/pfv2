@@ -1,0 +1,79 @@
+{
+  "built": "2026-09-24T02:28:46Z",
+  "bundle": "pfv2-test-data",
+  "contig": "17",
+  "contig_length": 94987271,
+  "expected_junctions": 8,
+  "files": {
+    "bl6-chr17.fq.gz": {
+      "bytes": 6641927,
+      "sha256": "ad0ca34d9a6346b96e48e7a0af7c17aa6aa98d7a0b0325a2ded02de0bcb140c6"
+    },
+    "expected/pf-structures.bed": {
+      "bytes": 492,
+      "sha256": "aa89b0a6fcc57287557fa7354c13a7e215ec41006c916c4d726584ffa23f79fc"
+    },
+    "genome.fa.gz": {
+      "bytes": 1520642,
+      "sha256": "bc9042f8b3cb5cb8966255db9604ede8a70d9eceadba4820490764d5752ff862"
+    },
+    "transcriptome.fa": {
+      "bytes": 463226,
+      "sha256": "ba8dbf75264797d739d995786687fd7d7b93fb05d3406bdac6868068034707fa"
+    }
+  },
+  "flank": 250000,
+  "provenance": {
+    "cdna": "/lambda/nfs/DDXL/ddxl/refcache/references/local-102-mus_musculus-supplied-f0cbd0d0cc63/transcriptome.cdna.fa",
+    "chimeric": "/home/ubuntu/pfv2-cmp/full-depth/PF/SAMEA120815325/star_Chimeric.out.junction",
+    "fastq": [
+      "/lambda/nfs/DDXL/ddxl/merged/SAMEA120815325_1.fq.gz",
+      "/lambda/nfs/DDXL/ddxl/merged/SAMEA120815325_2.fq.gz"
+    ],
+    "genome": "/lambda/nfs/DDXL/ddxl/refcache/references/local-102-mus_musculus-supplied-f0cbd0d0cc63/genome.fa",
+    "structures": "/home/ubuntu/pfv2-cmp/full-depth/PF/SAMEA120815325/pf-structures.bed"
+  },
+  "reads": {
+    "background": 36172,
+    "chimeric": 3624,
+    "records": 79592,
+    "seed": 7,
+    "supporting": 15
+  },
+  "sample_id": "bl6-chr17",
+  "unmasked_bases": 79592,
+  "windows": [
+    {
+      "end0": 5377024,
+      "start0": 4790579
+    },
+    {
+      "end0": 14625519,
+      "start0": 14086546
+    },
+    {
+      "end0": 43102528,
+      "start0": 42595325
+    },
+    {
+      "end0": 46440776,
+      "start0": 45925150
+    },
+    {
+      "end0": 50861195,
+      "start0": 50356294
+    },
+    {
+      "end0": 65845054,
+      "start0": 65342290
+    },
+    {
+      "end0": 67537932,
+      "start0": 67037390
+    },
+    {
+      "end0": 85255566,
+      "start0": 84743679
+    }
+  ]
+}

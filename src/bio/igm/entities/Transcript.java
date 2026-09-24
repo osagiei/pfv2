@@ -9,7 +9,7 @@ import java.util.Map;
  */
 public class Transcript {
   String refseq;
-  Map<Integer, Exons> exons = new HashMap();
+  Map<Integer, Exons> exons = new HashMap<Integer, Exons>();
   int numOfExons = 0;
   String sequence;
 

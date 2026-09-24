@@ -1,0 +1,79 @@
+# A plain Job for a single sample, for clusters without Helm.
+#
+# Equivalent to what the chart renders for one entry in `samples`. Adjust the image tag,
+# the claim names and the paths, then:
+#
+#   kubectl apply -f deploy/k8s/job-example.yaml
+#
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pfv2-sample1
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 604800
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      initContainers:
+        - name: validate
+          image: conidiobolus/pfv2:2.2.0
+          args:
+            - validate
+            - --fastq=/reads/sample1.fq.gz
+            - --genome=/refs/genome.fa
+            - --star-index=/refs/indexes/star
+            - --bowtie2-genome=/refs/indexes/bowtie2/genome
+            - --bowtie2-transcriptome=/refs/indexes/bowtie2/transcriptome
+            - --read-length=150
+          volumeMounts:
+            - { name: refs, mountPath: /refs, readOnly: true }
+            - { name: reads, mountPath: /reads, readOnly: true }
+            - { name: tmp, mountPath: /tmp }
+      containers:
+        - name: pfv2
+          image: conidiobolus/pfv2:2.2.0
+          args:
+            - run
+            - -i
+            - sample1
+            - -r
+            - /reads/sample1.fq.gz
+            - -d
+            - /scratch
+            - -g
+            - /refs/genome.fa
+            - -S
+            - /refs/indexes/star
+            - -b
+            - /refs/indexes/bowtie2/genome
+            - -t
+            - /refs/indexes/bowtie2/transcriptome
+            - -l
+            - "150"
+            - -n
+            - "16"
+            - -m
+            - 20G
+            # Validation already ran as an init container.
+            - -V
+          resources:
+            requests: { cpu: "16", memory: 40Gi }
+            limits:   { cpu: "16", memory: 64Gi }
+          volumeMounts:
+            - { name: refs, mountPath: /refs, readOnly: true }
+            - { name: reads, mountPath: /reads, readOnly: true }
+            - { name: out, mountPath: /work }
+            - { name: scratch, mountPath: /scratch }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: refs,  persistentVolumeClaim: { claimName: pfv2-references } }
+        - { name: reads, persistentVolumeClaim: { claimName: pfv2-reads } }
+        - { name: out,   persistentVolumeClaim: { claimName: pfv2-output } }
+        - { name: scratch, emptyDir: { sizeLimit: 250Gi } }
+        - { name: tmp, emptyDir: { sizeLimit: 8Gi } }

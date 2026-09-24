@@ -1,0 +1,113 @@
+# PFv2 on Kubernetes.
+#
+# One Job per sample. PFv2 is a single-sample tool, so a cohort is a set of Jobs rather
+# than a workflow engine's concern -- set `samples` and the chart renders one Job each.
+#
+#   helm install pfv2 deploy/k8s -f my-values.yaml
+#
+image:
+  repository: conidiobolus/pfv2
+  tag: ""                  # defaults to .Chart.AppVersion
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+  # A digest is what actually gets deployed; a tag can be moved. Set this for anything
+  # whose results have to be reproducible.
+  digest: ""
+
+# One Job per entry. `readLength` may be set per sample when a cohort is not uniform.
+samples: []
+  # - id: SAMEA120815325
+  #   fastq: /data/reads/SAMEA120815325/reads_se.fq.gz
+  #   readLength: 150
+
+# Paths as seen inside the container. They must resolve on the mounted volumes below.
+reference:
+  genomeFasta: /refs/genome.fa
+  starIndex: /refs/indexes/star
+  bowtie2Genome: /refs/indexes/bowtie2/genome
+  bowtie2Transcriptome: /refs/indexes/bowtie2/transcriptome
+
+  # Fetch the reference from a Zenodo record with an init container instead of expecting it
+  # to be present. The record's published MD5 is verified before anything is unpacked.
+  zenodo:
+    enabled: false
+    record: ""             # record id, DOI, or record URL
+    latest: false          # follow a concept DOI to the newest version
+    only: []               # restrict to these file names or roles
+
+params:
+  readLength: 150          # default when a sample does not set its own
+  junctionSpan: 8
+  pid: 0.85
+  maxGenomicSpan: 1000000
+  minGenomicSpan: 50
+  threads: 16
+  javaHeap: 20G
+  filters: both            # both | genomic | transcriptomic
+  keepIntermediates: false
+  legacy: false            # reproduce the filter semantics of releases up to 2.1.0
+  alignedStrand: false     # true reports STAR's aligned strand instead of the strand the
+                           # splice motif implies; for reproducing pre-2.2.0 output only
+  skipValidation: false
+
+# STAR needs the whole genome index resident, so the memory request is a floor rather than
+# a guess: under-requesting gets the pod OOM-killed partway through mapping.
+resources:
+  requests:
+    cpu: "16"
+    memory: 40Gi
+  limits:
+    cpu: "16"
+    memory: 64Gi
+
+storage:
+  # Reference volume, mounted read-only unless the Zenodo init container needs to write it.
+  reference:
+    claimName: pfv2-references
+    subPath: ""
+  # Reads volume.
+  reads:
+    claimName: pfv2-reads
+    subPath: ""
+  # Results volume.
+  output:
+    claimName: pfv2-output
+    subPath: ""
+  # Scratch. PFv2 writes construct indexes and SAM files here, which for a deep library is
+  # tens of gigabytes; emptyDir on the node's disk is usually right.
+  scratch:
+    sizeLimit: 250Gi
+    medium: ""             # set to Memory for tmpfs, if the node has the RAM
+
+job:
+  backoffLimit: 1          # mapping is expensive; do not retry a deterministic failure
+  ttlSecondsAfterFinished: 604800
+  activeDeadlineSeconds: 86400
+  restartPolicy: Never
+  # Kept for the whole cohort so a run cannot half-finish because a node pool filled up.
+  parallelism: 1
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+podAnnotations: {}
+podLabels: {}

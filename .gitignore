@@ -1,0 +1,36 @@
+# Build output
+build/
+classes/
+dist/
+
+# NetBeans
+nbproject/private/
+
+# Dropbox conflict artefacts
+*conflicted copy*
+
+# Secrets. Never commit these: a token in git history stays there after a force-push and
+# has to be revoked, not deleted.
+.env
+.env.*
+!.env.example
+*.token
+
+# Editor / OS noise
+.DS_Store
+*.swp
+*~
+
+# Python
+__pycache__/
+*.pyc
+
+# Pipeline output
+PF/
+*.sam
+*.bam
+*.bam.bai
+*.bt2
+*.bt2l
+*.ebwt
+run.log
