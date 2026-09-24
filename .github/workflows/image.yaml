@@ -1,0 +1,51 @@
+name: image
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Image tag to publish (defaults to the version in PFv2.sh)
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve the version
+        id: version
+        run: |
+          version="${{ inputs.tag }}"
+          if [ -z "$version" ]; then
+            version=$(grep -m1 '^readonly VERSION=' PFv2.sh | cut -d'"' -f2)
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      # DOCKERHUB_USERNAME and DOCKERHUB_TOKEN are repository secrets; the token should be a
+      # Docker Hub access token scoped to this repository, not an account password.
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # The image self-tests during build (stages 2, 3 and 5 against a synthetic dataset),
+      # so a broken build cannot be pushed.
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ vars.DOCKERHUB_NAMESPACE || 'conidiobolus' }}/pfv2:${{ steps.version.outputs.version }}
+            ${{ vars.DOCKERHUB_NAMESPACE || 'conidiobolus' }}/pfv2:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

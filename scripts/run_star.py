@@ -1,223 +1,194 @@
 '''
-
 Author: Osagie Izuogu
 
-Description: Script for mapping sequenced reads to the genome using STAR
-             For STAR-specific parameter details,
-             see: https://github.com/alexdobin/STAR/blob/master/doc/STARmanual.pdf
+Description: Maps sequenced reads to the genome with STAR, with chimeric
+             detection enabled so that backsplice candidates are reported in
+             Chimeric.out.junction.
+
+             For STAR-specific parameter details, see:
+             https://github.com/alexdobin/STAR/blob/master/doc/STARmanual.pdf
 
 Date: 07/2020
 '''
 
-import subprocess
-import os
 import argparse
 import logging
+import os
+import shutil
+import subprocess
+import sys
 
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s.%(msecs)03d %(name)-4s [%(levelname)-4s] %(message)s',
     datefmt='%d-%m-%Y %H:%M:%S')
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        '-o',
-        '--output_dir',
-        action="store",
-        dest="output_dir",
-        required=True,
-        help="Output directory required")
+LOG = logging.getLogger('run_star')
 
+# Outputs the rest of the pipeline reads back.
+REQUIRED_OUTPUTS = ('Chimeric.out.junction', 'SJ.out.tab')
+
+
+def fail(message):
+    LOG.error(message)
+    sys.exit(1)
+
+
+def run(command):
+    '''Runs a command as an argument list, without a shell.'''
+    LOG.info('Running: %s', ' '.join(command))
+    try:
+        subprocess.run(command, check=True)
+    except FileNotFoundError:
+        fail('Executable not found: %s' % command[0])
+    except subprocess.CalledProcessError as error:
+        fail('%s exited with status %d' % (command[0], error.returncode))
+
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(
+        description='Map reads to the genome with STAR, detecting chimeric junctions.')
     parser.add_argument(
-        '-g',
-        '--genome_index',
-        action="store",
-        dest="genome_index",
-        required=True,
-        help="Path to STAR index; should exist for mapping, path is used for creating new index")
+        '-o', '--output_dir', dest='output_dir', required=True,
+        help='Output directory; results are written to <output_dir>/<sample_id>')
     parser.add_argument(
-        '-f',
-        '--genome_fasta',
-        dest="genome_fasta",
-        action="store",
-        required=True,
-        help="Genome fasta containing seq_region sequences")
+        '-g', '--genome_index', dest='genome_index', required=True,
+        help='Path to the STAR index; must exist for mapping, is created by --build_genome_index')
     parser.add_argument(
-        '-s',
-        '--sample_id',
-        dest="sample_id",
-        action="store",
-        required=True,
-        help="Sample ID")
+        '-s', '--sample_id', dest='sample_id', required=True,
+        help='Sample ID')
     parser.add_argument(
-        '--fastq',
-        nargs='+',
+        '-f', '--genome_fasta', dest='genome_fasta', default=None,
+        help='Genome FASTA; required only with --build_genome_index')
+    parser.add_argument(
+        '--fastq', nargs='+',
         help='FASTQ input. Format: fastq1 [fastq2]')
     parser.add_argument(
-        '--prefix',
-        default="star",
-        help='Prefix for output file names')
+        '--prefix', default='star',
+        help='Prefix for output file names (default: star)')
     parser.add_argument(
-        '--annotation_gtf',
-        default=None,
-        help='Annotation in GTF format')
-    parser.add_argument('--outFilterMultimapNmax', default='10')
-    parser.add_argument('--alignSJoverhangMin', default='8')
-    parser.add_argument('--alignSJDBoverhangMin', default='1')
-    parser.add_argument('--outFilterMismatchNmax', default='2')
-    parser.add_argument('--outFilterMismatchNoverLmax', default='0.1')
-    parser.add_argument('--alignIntronMin', default='20')
+        '-t', '--threads', default='16',
+        help='Number of threads (default: 16)')
+    parser.add_argument('--program', default='STAR',
+                        help='STAR executable to use (default: STAR)')
+
+    # Alignment parameters the pipeline depends on. Changing these changes which
+    # backsplice candidates are reported.
     parser.add_argument('--alignIntronMax', default='1000000')
-    parser.add_argument('--alignMatesGapMax', default='1000000')
-    parser.add_argument('--outFilterType', default='BySJout')
-    parser.add_argument('--outFilterScoreMinOverLread', default='0.33')
-    parser.add_argument('--outFilterMatchNminOverLread', default='0.33')
-    parser.add_argument('--limitSjdbInsertNsj', default='1200000')
-    parser.add_argument('--outSAMstrandField', default='intronMotif')
-    parser.add_argument(
-        '--outFilterIntronMotifs',
-        default='None',
-        help="Use 'RemoveNoncanonical' for Cufflinks compatibility")
-    parser.add_argument('--alignSoftClipAtReferenceEnds', default='Yes')
-    parser.add_argument(
-        '--quantMode',
-        default=[
-            'TranscriptomeSAM',
-            'GeneCounts'],
-        nargs='+',
-        help='Outputs read counts, and a BAM with reads in transcriptome coordinates')
-    parser.add_argument(
-        '--outSAMtype',
-        default=[
-            'BAM',
-            'SortedByCoordinate'],
-        nargs='+')
-    parser.add_argument(
-        '--outSAMunmapped',
-        default='Within',
-        help='Keep unmapped reads in output BAM')
-    parser.add_argument(
-        '--outSAMattrRGline',
-        default=[
-            'ID:rg1',
-            'SM:sm1'],
-        nargs='+',
-        help='Adds read group line to BAM header; required by GATK')
-    parser.add_argument(
-        '--outSAMattributes',
-        default=[
-            'NH',
-            'HI',
-            'XS',
-            'AS',
-            'nM',
-            'NM',
-            'ch'],
-        nargs='+')
-    parser.add_argument(
-        '--chimSegmentMin',
-        default='20',
-        help='Minimum chimeric segment length; switches on detection of chimeric (fusion) alignments')
-    parser.add_argument(
-        '--chimJunctionOverhangMin',
-        default='20',
-        help='Minimum overhang for a chimeric junction')
-    parser.add_argument('--chimScoreMin', default=1)
-    parser.add_argument(
-        '--chimOutType',
-        default=[
-            'WithinBAM',
-            'SoftClip'],
-        nargs='+',
-        help='')
-    parser.add_argument('--chimMainSegmentMultNmax', default='1', help='')
+    parser.add_argument('--outFilterMultimapNmax', default='10')
+    parser.add_argument('--outFilterMismatchNmax', default='2')
+    parser.add_argument('--chimSegmentMin', default='20',
+                        help='Minimum chimeric segment length; enables chimeric detection')
+    parser.add_argument('--chimScoreMin', default='1',
+                        help='Minimum score for a chimeric alignment')
     parser.add_argument('--genomeLoad', default='NoSharedMemory')
-    parser.add_argument(
-        '--sjdbFileChrStartEnd',
-        default=None,
-        help='SJ.out.tab file (e.g., from 1st pass). With this option, only one pass will be run')
-    parser.add_argument(
-        '--STARlong',
-        action='store_true',
-        help='Use STARlong instead of STAR')
-    parser.add_argument(
-        '-t',
-        '--threads',
-        default='16',
-        help='Number of threads')
-    parser.add_argument(
-        '--build_genome_index',
-        dest="build_genome_index",
-        action="store_true")
-    parser.add_argument('--limitGenomeGenerateRAM', default=36183246720)
-    parser.add_argument('--program', default="STAR")
+    parser.add_argument('--outSAMtype', default=['BAM', 'SortedByCoordinate'], nargs='+')
+    parser.add_argument('--outSAMattributes',
+                        default=['NH', 'HI', 'XS', 'AS', 'nM', 'NM', 'ch'], nargs='+')
+    parser.add_argument('--extra', nargs=argparse.REMAINDER, default=[],
+                        help='Additional arguments passed straight through to STAR')
 
-    args = parser.parse_args()
+    # Index building.
+    parser.add_argument('--build_genome_index', dest='build_genome_index', action='store_true')
+    parser.add_argument('--limitGenomeGenerateRAM', default='36183246720')
+    parser.add_argument('--skip_bam_index', action='store_true',
+                        help='Do not index the sorted BAM; the pipeline does not require it')
 
+    return parser.parse_args(argv)
+
+
+def build_index(args):
+    if not args.genome_fasta:
+        fail('--genome_fasta is required with --build_genome_index')
+    if not os.path.isfile(args.genome_fasta):
+        fail('Genome FASTA not found: %s' % args.genome_fasta)
+
+    os.makedirs(args.genome_index, exist_ok=True)
+    run([args.program,
+         '--runThreadN', str(args.threads),
+         '--runMode', 'genomeGenerate',
+         '--genomeFastaFiles', args.genome_fasta,
+         '--genomeLoad', args.genomeLoad,
+         '--genomeDir', args.genome_index,
+         '--limitGenomeGenerateRAM', str(args.limitGenomeGenerateRAM)])
+    LOG.info('Finished building the STAR index for the genome')
+
+
+def map_reads(args):
+    if not args.fastq:
+        fail('--fastq is required when mapping')
+    for fastq in args.fastq:
+        if not os.path.isfile(fastq):
+            fail('FASTQ not found: %s' % fastq)
+    if not os.path.isdir(args.genome_index):
+        fail('STAR index directory not found: %s' % args.genome_index)
+
+    sample_dir = os.path.join(args.output_dir, args.sample_id)
+    os.makedirs(sample_dir, exist_ok=True)
+
+    command = [args.program,
+               '--runThreadN', str(args.threads),
+               '--genomeDir', args.genome_index,
+               '--genomeLoad', args.genomeLoad,
+               '--readFilesIn'] + list(args.fastq) + [
+               '--alignIntronMax', str(args.alignIntronMax),
+               '--outFilterMultimapNmax', str(args.outFilterMultimapNmax),
+               '--outFilterMismatchNmax', str(args.outFilterMismatchNmax),
+               '--outSAMtype'] + list(args.outSAMtype) + [
+               '--outSAMattributes'] + list(args.outSAMattributes) + [
+               '--outFileNamePrefix', os.path.join(sample_dir, args.prefix + '_'),
+               # Chimeric detection supplies the backsplice candidates.
+               '--chimSegmentMin', str(args.chimSegmentMin),
+               '--chimScoreMin', str(args.chimScoreMin),
+               # Pinned explicitly: the pipeline reads Chimeric.out.junction, and
+               # relying on the STAR default here breaks across releases.
+               '--chimOutType', 'Junctions']
+
+    if args.fastq[0].endswith('.gz'):
+        command += ['--readFilesCommand', 'zcat']
+    command += list(args.extra)
+
+    run(command)
+    LOG.info('Finished mapping reads to the genome with STAR')
+
+    for name in REQUIRED_OUTPUTS:
+        path = os.path.join(sample_dir, '%s_%s' % (args.prefix, name))
+        if not os.path.isfile(path):
+            fail('STAR did not produce the expected output: %s' % path)
+
+    index_bam(args, sample_dir)
+
+
+def index_bam(args, sample_dir):
+    bam = os.path.join(sample_dir, '%s_Aligned.sortedByCoord.out.bam' % args.prefix)
+    if not os.path.isfile(bam):
+        LOG.warning('Sorted BAM not found at %s; skipping indexing', bam)
+        return
+
+    with open(os.path.join(args.output_dir, 'bams.list'), 'a') as handle:
+        handle.write(os.path.abspath(bam) + '\n')
+
+    if args.skip_bam_index:
+        return
+    if shutil.which('samtools') is None:
+        LOG.warning('samtools not found on PATH; skipping BAM indexing')
+        return
+
+    try:
+        subprocess.run(['samtools', 'index', '-b', bam], check=True)
+        LOG.info('Finished indexing the BAM file')
+    except subprocess.CalledProcessError as error:
+        # The pipeline reads the junction files, not the BAM, so this is not fatal.
+        LOG.warning('samtools index failed with status %d; continuing', error.returncode)
+
+
+def main(argv=None):
+    args = parse_args(argv)
     if args.build_genome_index:
-        if not os.path.exists(args.genome_index):
-            os.makedirs(args.genome_index)
-
-        COMMAND = "{0} --runThreadN {1} " \
-                  "--runMode genomeGenerate " \
-                  "--genomeFastaFiles {2} " \
-                  "--genomeLoad {3} " \
-                  "--genomeDir {4} " \
-                  "--limitGenomeGenerateRAM {5}". \
-            format(args.program, args.threads, args.genome_fasta, args.genomeLoad,
-                   args.genome_index, args.limitGenomeGenerateRAM)
-
-        SIGNAL = subprocess.check_call(
-            COMMAND, shell=True, stdout=subprocess.PIPE)
-
-        if SIGNAL == 0:
-            logging.info("Finished building STAR index for genome")
-
+        build_index(args)
     else:
-        if not os.path.exists(args.output_dir):
-            os.makedirs(args.output_dir)
+        map_reads(args)
 
-        FASTQ = ' '.join(args.fastq)
 
-        COMMAND = "{0} --runThreadN {1} " \
-                  "--genomeDir {2} " \
-                  "--genomeLoad {3} " \
-                  "--readFilesIn {4} " \
-                  "--alignIntronMax {5} " \
-                  "--outFilterMultimapNmax {6} " \
-                  "--outFilterMismatchNmax {7} " \
-                  "--outSAMtype {8} " \
-                  "--outSAMattributes {9} " \
-                  "--outFileNamePrefix {10}/{11}/{12}_ ". \
-            format(args.program, args.threads, args.genome_index, args.genomeLoad, FASTQ, args.alignIntronMax,
-                   args.outFilterMultimapNmax, args.outFilterMismatchNmax, ' '.join(args.outSAMtype),
-                   ' '.join(args.outSAMattributes), args.output_dir, args.sample_id, args.prefix)
-
-        # identify chimeric reads
-        COMMAND += ' --chimSegmentMin {0}' ' --chimScoreMin {1}'.format(
-            args.chimSegmentMin, args.chimScoreMin)
-
-        if args.fastq[0].endswith('.gz'):
-            COMMAND += ' --readFilesCommand zcat'
-
-        SIGNAL = subprocess.check_call(
-            COMMAND, shell=True, stdout=subprocess.PIPE)
-
-        if SIGNAL == 0:
-            logging.info("Finished mapping reads to genome with STAR")
-
-            # index BAM
-
-            COMMAND = "samtools index -b {0}/{1}/{2}_Aligned.sortedByCoord.out.bam". \
-                format(args.output_dir, args.sample_id, args.prefix)
-
-            SIGNAL = subprocess.check_call(
-                COMMAND, shell=True, stdout=subprocess.PIPE)
-
-            if SIGNAL == 0:
-                logging.info("Finished indexing BAM file")
-
-                os.system(
-                    "readlink -f {0}/{1}/{2}_Aligned.sortedByCoord.out.bam >> {0}/bams.list". format(
-                        args.output_dir, args.sample_id, args.prefix))
+if __name__ == '__main__':
+    main()

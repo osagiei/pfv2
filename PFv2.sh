@@ -1,236 +1,447 @@
-#!/bin/sh
-############################################## check_java_version
-_java=java
-if [[ "$_java" ]]; then
-    # VERSION=$("$_java" -Xms500M -Xmx500M -version 2>&1 | awk -F '"' '/version/ {print $2}')
-    VERSION=$($_java -version 2>&1 \
-          | head -1 \
-          | cut -d'"' -f2 \
-          | sed 's/^1\.//' \
-          | cut -d'.' -f1)
-    echo version "$VERSION"
-    if [[ "$VERSION" -gt 15 ]]; then
-        echo ">>> Java version check completed -- okay "
-    else
-        echo -e "Error: Java version check failed, please re-run with version higher than 15 \nOr try re-compiling by running 'sh setup.sh' before re-running -- exiting "
-        exit 1
-    fi
+#!/usr/bin/env bash
+#
+# PTESFinder v2 - annotation-free identification of post-transcriptional exon
+# shuffling (PTES) / backsplice junctions from RNA-seq data.
+#
+# Re-exec under bash when invoked as `sh PFv2.sh`, since this script relies on
+# bash arithmetic, [[ ]] and pipefail.
+if [ -z "${BASH_VERSION:-}" ]; then
+  exec bash "$0" "$@"
 fi
 
-############################################### usage_info
+set -euo pipefail
 
-usage(){
-echo -e "\n*** PTESFinder v. 2 ***\nTo run PFv2, ensure STAR, bedtools and bowtie2 are installed on your system and on your path. Also, ensure that your system can execute Java programs; minimum version: 1.6.
+readonly VERSION="2.2.0"
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-Input Files:
-        RNASeq data in Illumina FASTQ format
-        Genome reference in FASTA format
-        Pre-built bowtie2 genome reference index
-        Pre-built bowtie2 transcriptome reference index
-        Path to pre-built STAR genome reference index files
-
-Running PTESFinder:
-        $ sh PFv2.sh <options>
-
-Parameters:
-
-Mandatory:
-        -r sequence reads in FASTQ format
-        -d working directory
-        -i sample_id
-        -t transcript reference bowtie index
-        -g genome reference in FASTA format
-        -b genome reference bowtie2 index
-        -c PFv2 code directory
-        -l average read length
-        -S path to STAR genome reference index files
-Optional:
-        -p PID -- should be <= 1; ideal values between 0.60 and 0.95, default: 0.85
-        -j junction Span --should be an even integer, ideal values between 4 and 14, default: 8
-        -G turn off all filters flag and run only genomic and junctional filters
-        -T turn off all filters flag and run only transcriptomic and junctional filters
-        -C Maximum backsplice genomic span - default: 1000000
-
-#example run command:
-sh PFv2.sh \
-  -i SRR364679 \
-  -r SRR364679.fastq \
-  -d SRR364679/ \
-  -S STAR/ \
-  -t transcriptome-index-bowtie \
-  -g genome.fasta \
-  -b genome-index-bowtie \
-  -l 100 \
-  -c pfv2/
-
-Note:
-  - Path to pre-built STAR index should contain the following files:
-      chrLength.txt
-      chrNameLength.txt
-      chrName.txt
-      chrStart.txt
-      Genome
-      genomeParameters.txt
-      SA
-      SAindex
-
-  - Bowtie2 index files with extensions .bt2 required. In the example above, transcriptome-index-bowtie.*.bt2
-
-  - PE reads should be pooled into a single FASTQ file with unique read ids.
-
-
-#email support: osagie.izuogu@gmail.com";
-exit 1;
-}
-#####################################################################
-
-GFLAG=false
-BFLAG=false
-SFLAG=false
-TFLAG=false
-LFLAG=false
-
+########################################################################## defaults
 JSPAN=8
 PID=0.85
 MAX_GENOMIC_SPAN=1000000
+MIN_GENOMIC_SPAN=50
 MIN_OVERHANG=15
+THREADS=16
+JAVA_MEM=20G
+MIN_JAVA_VERSION=15
 
-while getopts ":r:i:d:t:g:b:l:p:j:c:S:C:h" opt; do
-	case $opt in
-		r)	FASTQ_READS="$OPTARG";;
-		d)	OUTPUT_DIR="$OPTARG"
-			if [ ! -d "$OUTPUT_DIR" ]; then
-				echo "Error: The path provided is not a directory, using current directory"
-				OUTPUT_DIR=`pwd`
+CODEBASE="$SCRIPT_DIR"
+PYTHON="${PYTHON:-python3}"
 
-			fi
-			OUTPUT_DIR=$OUTPUT_DIR/PF;;
-	  i)  SAMPLE_ID="$OPTARG";;
-		t)	TFLAG=true; TRANSCRIPTOME_INDEX="$OPTARG";;
-		g)	GFLAG=true; GENOME_FASTA="$OPTARG";;
-		b)	BFLAG=true; GENOME_BOWTIE_INDEX="$OPTARG";;
-		S)	SFLAG=true; GENOME_STAR_INDEX="$OPTARG";;
-    l)  LFLAG=true; READ_LENGTH="$OPTARG";;
-		p)	PID="$OPTARG";;
-		j)	JSPAN="$OPTARG";;
-    C)  MAX_GENOMIC_SPAN="$OPTARG";;
-		c)	if [ ! -d "$OPTARG" ]; then
-           echo "Error: The path provided is not a directory, please provide path to directory containing PFv2.jar..exiting"
-           exit 1
-        fi
-			CODEBASE="$OPTARG";;
+FASTQ_READS=""
+OUTPUT_DIR=""
+SAMPLE_ID=""
+TRANSCRIPTOME_INDEX=""
+GENOME_FASTA=""
+GENOME_BOWTIE_INDEX=""
+GENOME_STAR_INDEX=""
+READ_LENGTH=""
 
-		h)	usage;;
-		\?)
-		   echo -e "Invalid option: -$OPTARG\n"
-	  		 usage
-	  		 ;;
-		:)
-		   echo "Option -$OPTARG requires an argument!"
-			usage
-		        exit 1
-           		 ;;
-	esac
+GENOMIC_ONLY=false
+TRANSCRIPTOMIC_ONLY=false
+KEEP_INTERMEDIATES=false
+LEGACY=false
+SKIP_VALIDATION=false
+NORMALISE_STRAND=true
+
+########################################################################## helpers
+log()  { printf '%s [INFO]  %s\n'  "$(date '+%Y-%m-%d %H:%M:%S')" "$*"; }
+warn() { printf '%s [WARN]  %s\n'  "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >&2; }
+die()  { printf '%s [ERROR] %s\n'  "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >&2; exit 1; }
+
+on_error() {
+  local exit_code=$?
+  warn "PTESFinder failed at line ${BASH_LINENO[0]} with exit status ${exit_code}"
+  if [[ -n "${WORKING_DIR:-}" && -f "${WORKING_DIR}/run.log" ]]; then
+    warn "See ${WORKING_DIR}/run.log for the Java stage logs"
+  fi
+  exit "$exit_code"
+}
+trap on_error ERR
+
+usage() {
+cat <<'USAGE'
+
+*** PTESFinder v2 ***
+
+Identifies post-transcriptional exon shuffling (backsplice) junctions in RNA-seq
+data without relying on an annotation.
+
+Input files:
+        RNA-seq reads in Illumina FASTQ format (plain or gzipped)
+        Genome reference in FASTA format
+        Pre-built STAR genome index
+        Pre-built Bowtie2 genome index
+        Pre-built Bowtie2 transcriptome index
+
+Usage:
+        bash PFv2.sh -i <sample> -r <reads.fastq> -d <dir> -S <star_index> \
+                     -t <transcriptome_index> -g <genome.fa> -b <genome_index> -l <read_length>
+
+Mandatory:
+        -r  sequence reads in FASTQ format
+        -d  working directory
+        -i  sample id
+        -t  transcriptome reference Bowtie2 index prefix
+        -g  genome reference in FASTA format
+        -b  genome reference Bowtie2 index prefix
+        -l  average read length
+        -S  path to the pre-built STAR genome index directory
+
+Optional:
+        -c  PFv2 code directory (default: the directory holding this script)
+        -p  minimum percent identity per flank, 0-1; ideal 0.60-0.95 (default: 0.85)
+        -j  junction span, even integer; ideal 4-14 (default: 8)
+        -C  maximum backsplice genomic span in bp (default: 1000000)
+        -M  minimum backsplice genomic span in bp (default: 50)
+        -n  threads for STAR and Bowtie2 (default: 16)
+        -m  Java heap for the PFv2 stages, e.g. 8G (default: 20G)
+        -G  run the genomic filter only, skipping the transcriptomic comparison
+        -T  run the transcriptomic filter only, skipping the genomic comparison
+        -k  keep intermediate SAM/FASTA/index files instead of deleting them
+        -L  reproduce the filter semantics of releases up to 2.1.0 (see CHANGELOG)
+        -V  skip input and reference validation
+        -A  report the aligned strand STAR assigned instead of the strand implied by
+            the splice motif; for reproducing pre-2.2.0 output only, see CHANGELOG
+        -h  show this message
+
+Example:
+        bash PFv2.sh \
+          -i SRR364679 \
+          -r SRR364679.fastq \
+          -d SRR364679/ \
+          -S STAR/ \
+          -t transcriptome-index-bowtie \
+          -g genome.fasta \
+          -b genome-index-bowtie \
+          -l 100
+
+Notes:
+  - The STAR index directory must contain chrLength.txt, chrNameLength.txt,
+    chrName.txt, chrStart.txt, Genome, genomeParameters.txt, SA and SAindex.
+  - Bowtie2 index prefixes are given without the .bt2 suffix, e.g. pass
+    "transcriptome-index-bowtie" for transcriptome-index-bowtie.1.bt2.
+  - Sequence names in the genome FASTA must match those used to build the STAR
+    index ("chr1" and "1" are not interchangeable).
+  - Paired-end reads must be pooled into a single FASTQ with unique read ids.
+
+Dependencies: STAR, Bowtie2, samtools, Python 3, Java 16 or newer.
+
+email support: osagie.izuogu@gmail.com
+USAGE
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || die "Required executable not found on PATH: $1"
+}
+
+require_file() {
+  [[ -f "$1" ]] || die "$2 not found: $1"
+  [[ -r "$1" ]] || die "$2 is not readable: $1"
+}
+
+require_bowtie2_index() {
+  local prefix="$1" label="$2"
+  local found=false f
+  for f in "${prefix}".1.bt2 "${prefix}".1.bt2l; do
+    [[ -f "$f" ]] && found=true
+  done
+  $found || die "$label Bowtie2 index not found: expected ${prefix}.1.bt2 (or .bt2l)"
+}
+
+require_star_index() {
+  local dir="$1" f
+  [[ -d "$dir" ]] || die "STAR index directory not found: $dir"
+  for f in chrName.txt chrStart.txt Genome SA SAindex genomeParameters.txt; do
+    [[ -f "${dir}/${f}" ]] || die "STAR index is incomplete: ${dir}/${f} is missing"
+  done
+}
+
+is_positive_int() { [[ "$1" =~ ^[0-9]+$ ]] && [[ "$1" -gt 0 ]]; }
+
+check_java_version() {
+  require_command java
+  local version
+  version="$(java -version 2>&1 | head -1 | cut -d'"' -f2 | sed 's/^1\.//' | cut -d'.' -f1)"
+  if ! [[ "$version" =~ ^[0-9]+$ ]]; then
+    warn "Could not determine the Java version; continuing"
+    return 0
+  fi
+  if [[ "$version" -le "$MIN_JAVA_VERSION" ]]; then
+    die "Java $version found, but PFv2 needs $((MIN_JAVA_VERSION + 1)) or newer. \
+Install a newer JDK, or recompile for your JDK with 'bash setup.sh'."
+  fi
+  log "Java $version detected"
+}
+
+########################################################################## arguments
+while getopts ":r:i:d:t:g:b:l:p:j:c:S:C:M:n:m:GTkLVAh" opt; do
+  case $opt in
+    r) FASTQ_READS="$OPTARG" ;;
+    d) OUTPUT_DIR="$OPTARG" ;;
+    i) SAMPLE_ID="$OPTARG" ;;
+    t) TRANSCRIPTOME_INDEX="$OPTARG" ;;
+    g) GENOME_FASTA="$OPTARG" ;;
+    b) GENOME_BOWTIE_INDEX="$OPTARG" ;;
+    S) GENOME_STAR_INDEX="$OPTARG" ;;
+    l) READ_LENGTH="$OPTARG" ;;
+    p) PID="$OPTARG" ;;
+    j) JSPAN="$OPTARG" ;;
+    C) MAX_GENOMIC_SPAN="$OPTARG" ;;
+    M) MIN_GENOMIC_SPAN="$OPTARG" ;;
+    n) THREADS="$OPTARG" ;;
+    m) JAVA_MEM="$OPTARG" ;;
+    c) CODEBASE="$OPTARG" ;;
+    G) GENOMIC_ONLY=true ;;
+    T) TRANSCRIPTOMIC_ONLY=true ;;
+    k) KEEP_INTERMEDIATES=true ;;
+    L) LEGACY=true ;;
+    V) SKIP_VALIDATION=true ;;
+    A) NORMALISE_STRAND=false ;;
+    h) usage; exit 0 ;;
+    \?) printf 'Invalid option: -%s\n' "$OPTARG" >&2; usage >&2; exit 2 ;;
+    :)  printf 'Option -%s requires an argument\n' "$OPTARG" >&2; usage >&2; exit 2 ;;
+  esac
 done
 
-if ! $GFLAG || ! $SFLAG || ! $TFLAG || ! $BFLAG
-then
-	echo "Some mandatory options not provided, please ensure you have supplied a path to genomic reference FASTA, Bowtie2 transcriptome index and genome index paths for Bowtie2 & STAR...exiting!"
-	usage
-	exit 1
+########################################################################## validation
+missing=()
+[[ -n "$FASTQ_READS"         ]] || missing+=("-r sequence reads")
+[[ -n "$OUTPUT_DIR"          ]] || missing+=("-d working directory")
+[[ -n "$SAMPLE_ID"           ]] || missing+=("-i sample id")
+[[ -n "$TRANSCRIPTOME_INDEX" ]] || missing+=("-t transcriptome Bowtie2 index")
+[[ -n "$GENOME_FASTA"        ]] || missing+=("-g genome FASTA")
+[[ -n "$GENOME_BOWTIE_INDEX" ]] || missing+=("-b genome Bowtie2 index")
+[[ -n "$GENOME_STAR_INDEX"   ]] || missing+=("-S STAR genome index")
+[[ -n "$READ_LENGTH"         ]] || missing+=("-l average read length")
+
+if (( ${#missing[@]} > 0 )); then
+  printf 'Missing mandatory option(s):\n' >&2
+  printf '  %s\n' "${missing[@]}" >&2
+  printf '\n' >&2
+  usage >&2
+  exit 2
 fi
 
-echo -e ">>> Starting PTESFinder v.2 `date`..\n"
+is_positive_int "$READ_LENGTH" || die "-l read length must be a positive integer, got '$READ_LENGTH'"
+is_positive_int "$JSPAN"       || die "-j junction span must be a positive integer, got '$JSPAN'"
+is_positive_int "$THREADS"     || die "-n threads must be a positive integer, got '$THREADS'"
+is_positive_int "$MAX_GENOMIC_SPAN" || die "-C maximum span must be a positive integer, got '$MAX_GENOMIC_SPAN'"
+is_positive_int "$MIN_GENOMIC_SPAN" || die "-M minimum span must be a positive integer, got '$MIN_GENOMIC_SPAN'"
 
-#################################### initialization
-SEGMENT_SIZE=$(($READ_LENGTH - $MIN_OVERHANG))
+(( JSPAN % 2 == 0 )) || die "-j junction span must be an even integer, got $JSPAN"
+(( JSPAN >= 2 ))     || die "-j junction span must be at least 2, got $JSPAN"
+(( READ_LENGTH > MIN_OVERHANG )) \
+  || die "-l read length ($READ_LENGTH) must exceed the minimum overhang ($MIN_OVERHANG)"
+(( MAX_GENOMIC_SPAN >= MIN_GENOMIC_SPAN )) \
+  || die "-C maximum span ($MAX_GENOMIC_SPAN) is below -M minimum span ($MIN_GENOMIC_SPAN)"
 
-WORKING_DIR=${OUTPUT_DIR}/${SAMPLE_ID}/
-mkdir -p ${WORKING_DIR}
+awk -v p="$PID" 'BEGIN { exit !(p > 0 && p <= 1) }' \
+  || die "-p percent identity must be in (0, 1], got '$PID'"
 
-echo -e "INFO: Started mapping reads to the genome with STAR and Bowtie2 `date` \n"
+[[ "$JAVA_MEM" =~ ^[0-9]+[kKmMgG]?$ ]] || die "-m Java heap must look like 8G or 4096M, got '$JAVA_MEM'"
 
-python ${CODEBASE}/scripts/run_star.py \
-  --program STAR \
-  -s $SAMPLE_ID  \
-  --fastq  $FASTQ_READS \
-  --output_dir $OUTPUT_DIR \
-  --genome_index $GENOME_STAR_INDEX \
-  --genome_fasta $GENOME_FASTA
+if $GENOMIC_ONLY && $TRANSCRIPTOMIC_ONLY; then
+  warn "-G and -T were both given; running both filters, which is the default"
+  GENOMIC_ONLY=false
+  TRANSCRIPTOMIC_ONLY=false
+fi
 
-python ${CODEBASE}/scripts/run_bowtie.py \
-  -s $SAMPLE_ID  \
-  --fastq  $FASTQ_READS \
-  --output_dir $OUTPUT_DIR \
-  --reference_index $GENOME_BOWTIE_INDEX \
-  --logic_name "genomic"
+########################################################################## preflight
+log "PTESFinder v${VERSION} starting"
 
-python ${CODEBASE}/scripts/run_bowtie.py \
-  -s $SAMPLE_ID  \
-  --fastq  $FASTQ_READS \
-  --output_dir $OUTPUT_DIR \
-  --reference_index $TRANSCRIPTOME_INDEX \
-  --logic_name "transcriptomic"
+require_command STAR
+require_command bowtie2
+require_command bowtie2-build
+require_command samtools
+require_command "$PYTHON"
+check_java_version
 
-echo -e "SUCCESS: Finished mapping reads to the genome and transcriptome `date`\n"
-echo -e "INFO: Screening mapped reads for putative backsplice junctions\n"
+"$PYTHON" -c 'import sys; sys.exit(0 if sys.version_info[0] >= 3 else 1)' \
+  || die "$PYTHON is not Python 3; set PYTHON=/path/to/python3"
 
-java -Xms20G -Xmx20G -cp ${CODEBASE}/PFv2.jar:${CODEBASE}/apache-lib/commons-lang3-3.2.1.jar \
-    bio.igm.utils.discovery.ProcessShuffledCoordinates \
-    $WORKING_DIR \
-    $MAX_GENOMIC_SPAN \
-    $SEGMENT_SIZE
+[[ -d "$CODEBASE" ]] || die "-c code directory not found: $CODEBASE"
+require_file "${CODEBASE}/PFv2.jar" "PFv2.jar"
+require_file "${CODEBASE}/scripts/run_star.py" "run_star.py"
+require_file "${CODEBASE}/scripts/run_bowtie.py" "run_bowtie.py"
+require_file "${CODEBASE}/scripts/validate_inputs.py" "validate_inputs.py"
 
-echo -e "SUCCESS: Finished identifying putative backsplice junctions `date`\n"
-echo -e "INFO: Generating sequence constructs and evaluating models\n"
+COMMONS_LANG="$(find "${CODEBASE}/lib" -name 'commons-lang3-*.jar' -not -name '._*' 2>/dev/null | head -1 || true)"
+[[ -n "$COMMONS_LANG" ]] || die "commons-lang3 jar not found in ${CODEBASE}/lib"
 
-java -Xms20G -Xmx20G -cp ${CODEBASE}/PFv2.jar:${CODEBASE}/apache-lib/commons-lang3-3.2.1.jar \
-    bio.igm.utils.discovery.GenerateSequenceConstructsGenome \
-    $WORKING_DIR \
-    $GENOME_FASTA
+require_file "$FASTQ_READS" "FASTQ reads"
+require_file "$GENOME_FASTA" "Genome FASTA"
+require_star_index "$GENOME_STAR_INDEX"
+require_bowtie2_index "$GENOME_BOWTIE_INDEX" "Genome"
+require_bowtie2_index "$TRANSCRIPTOME_INDEX" "Transcriptome"
 
-bowtie2-build ${WORKING_DIR}/Can.fa ${WORKING_DIR}/canonical 2>> ${WORKING_DIR}/bowtie-build.log
-bowtie2-build ${WORKING_DIR}/Constructs.fa ${WORKING_DIR}/ptes 2>> ${WORKING_DIR}/bowtie-build.log
-
-python ${CODEBASE}/scripts/run_bowtie.py \
-  -s $SAMPLE_ID  \
-  --fastq  $FASTQ_READS \
-  --output_dir $OUTPUT_DIR \
-  --reference_index ${WORKING_DIR}/ptes \
-  --logic_name "ptes"
-
-python ${CODEBASE}/scripts/run_bowtie.py \
-  -s $SAMPLE_ID  \
-  --fastq  $FASTQ_READS \
-  --output_dir $OUTPUT_DIR \
-  --reference_index ${WORKING_DIR}/canonical \
-  --logic_name "canonical"
-
-echo -e "SUCCESS: Finished evaluating putative backsplice models `date` \n"
-echo -e "INFO: Filtering potential false positive predictions\n"
-
-java -Xms20G -Xmx20G -cp ${CODEBASE}/PFv2.jar:${CODEBASE}/apache-lib/commons-lang3-3.2.1.jar \
-    bio.igm.utils.filter.PipelineFilter \
-    $WORKING_DIR \
-    $JSPAN \
-    $PID 1 0 0
-
-# clean up
-if [ -f ${WORKING_DIR}/pf-structures.bed ]
-then
-  CIRC_READS=$(wc -l ${WORKING_DIR}/pf-supporting-reads.tab | awk '{print $1}')
-  CJUNCS_READS=$(awk '{sum += $5}END{print sum}' ${WORKING_DIR}/pf-flanking-canonical-junctions.bed)
-  TJR=$(( $CIRC_READS + $CJUNCS_READS ))
-
-  echo -e "INFO: Total number of identified circRNAs: $(wc -l ${WORKING_DIR}/pf-structures.bed | awk '{print $1}')"
-  echo -e "INFO: Total number of circRNA supporting reads: $CIRC_READS"
-  echo -e "INFO: Total number of canonical reads: $CJUNCS_READS"
-
-  awk -v X=$TJR '{print $1":"$2"-"$3":"$6"\t"$5"\t"($5 / X) * 1000000}' ${WORKING_DIR}/pf-structures.bed > ${WORKING_DIR}/${SAMPLE_ID}_jpms.tsv
-  rm -r $WORKING_DIR/*.{ebwt,bt2,fa,sam,bam}
-  echo -e "\n>>> Finished run successfully @ `date` ..\n"
-
+if $SKIP_VALIDATION; then
+  warn "Skipping input and reference validation (-V)"
 else
-  echo -e "WARNING: Run finished @ `date` without generating final output, check logs \n"
+  log "Validating inputs and references"
+  # Contig naming that differs between the genome FASTA and the STAR index produces an
+  # empty result many hours later, so it is worth a few seconds up front.
+  "$PYTHON" "${CODEBASE}/scripts/validate_inputs.py" \
+    --fastq "$FASTQ_READS" \
+    --genome "$GENOME_FASTA" \
+    --star-index "$GENOME_STAR_INDEX" \
+    --bowtie2-genome "$GENOME_BOWTIE_INDEX" \
+    --bowtie2-transcriptome "$TRANSCRIPTOME_INDEX" \
+    --read-length "$READ_LENGTH" \
+    || die "Validation failed. Fix the errors above, or pass -V to run anyway."
 fi
 
+mkdir -p "$OUTPUT_DIR" || die "Cannot create working directory: $OUTPUT_DIR"
+OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)/PF"
+WORKING_DIR="${OUTPUT_DIR}/${SAMPLE_ID}"
+mkdir -p "$WORKING_DIR" || die "Cannot create working directory: $WORKING_DIR"
+
+# Each construct arm is the read length less the minimum overhang, so a read can cross
+# the seam with at least MIN_OVERHANG bases on its short side. The floor keeps a short
+# read library from producing arms too small to host the junction window at all.
+SEGMENT_SIZE=$(( READ_LENGTH - MIN_OVERHANG ))
+SEGMENT_FLOOR=$(( JSPAN + MIN_OVERHANG ))
+if (( SEGMENT_SIZE < SEGMENT_FLOOR )); then
+  warn "Construct arm of ${SEGMENT_SIZE} bp is below the floor of ${SEGMENT_FLOOR} bp; using the floor"
+  SEGMENT_SIZE=$SEGMENT_FLOOR
+fi
+CLASSPATH="${CODEBASE}/PFv2.jar:${COMMONS_LANG}"
+JAVA_OPTS=(-Xms"${JAVA_MEM}" -Xmx"${JAVA_MEM}")
+
+if $GENOMIC_ONLY; then
+  FILTER_ARGS=(0 1 0); FILTER_DESC="genomic only"
+elif $TRANSCRIPTOMIC_ONLY; then
+  FILTER_ARGS=(0 0 1); FILTER_DESC="transcriptomic only"
+else
+  FILTER_ARGS=(1 0 0); FILTER_DESC="genomic and transcriptomic"
+fi
+
+# Legacy mode reproduces pre-2.2.0 output, which reported the aligned strand.
+$LEGACY && NORMALISE_STRAND=false
+if $NORMALISE_STRAND; then NORMALISE_ARG=1; else NORMALISE_ARG=0; fi
+
+if $LEGACY; then
+  LEGACY_ARG=1
+  FILTER_DESC="$FILTER_DESC (legacy semantics)"
+else
+  LEGACY_ARG=0
+fi
+
+log "Sample:        $SAMPLE_ID"
+log "Working dir:   $WORKING_DIR"
+log "Read length:   $READ_LENGTH (construct arm: $SEGMENT_SIZE bp)"
+log "Backsplice span: ${MIN_GENOMIC_SPAN}-${MAX_GENOMIC_SPAN} bp"
+log "Junction span:   $JSPAN, percent identity: $PID"
+log "Filters:         $FILTER_DESC"
+if $NORMALISE_STRAND; then
+  log "Strand:          from the splice motif"
+else
+  warn "Strand:          as STAR aligned it (-A); pre-2.2.0 convention, see CHANGELOG"
+fi
+$LEGACY && warn "Legacy mode: results reproduce releases up to 2.1.0, not the current defaults"
+log "Threads:         $THREADS, Java heap: $JAVA_MEM"
+
+########################################################################## 1. mapping
+log "Stage 1/5: mapping reads to the genome with STAR and Bowtie2"
+
+"$PYTHON" "${CODEBASE}/scripts/run_star.py" \
+  --sample_id "$SAMPLE_ID" \
+  --fastq "$FASTQ_READS" \
+  --output_dir "$OUTPUT_DIR" \
+  --genome_index "$GENOME_STAR_INDEX" \
+  --threads "$THREADS"
+
+for target in "genomic:${GENOME_BOWTIE_INDEX}" "transcriptomic:${TRANSCRIPTOME_INDEX}"; do
+  "$PYTHON" "${CODEBASE}/scripts/run_bowtie.py" \
+    --sample_id "$SAMPLE_ID" \
+    --fastq "$FASTQ_READS" \
+    --output_dir "$OUTPUT_DIR" \
+    --reference_index "${target#*:}" \
+    --logic_name "${target%%:*}" \
+    --threads "$THREADS"
+done
+
+########################################################################## 2. discovery
+log "Stage 2/5: screening mapped reads for putative backsplice junctions"
+
+java "${JAVA_OPTS[@]}" -cp "$CLASSPATH" \
+  bio.igm.utils.discovery.ProcessShuffledCoordinates \
+  "$WORKING_DIR" "$MAX_GENOMIC_SPAN" "$SEGMENT_SIZE" "$MIN_GENOMIC_SPAN" "$LEGACY_ARG"
+
+if [[ ! -s "${WORKING_DIR}/putative_structures.txt" ]]; then
+  warn "No putative backsplice junctions were found; nothing further to do"
+  warn "Run finished at $(date) without generating final output"
+  exit 0
+fi
+
+########################################################################## 3. constructs
+log "Stage 3/5: generating sequence constructs and building indexes"
+
+java "${JAVA_OPTS[@]}" -cp "$CLASSPATH" \
+  bio.igm.utils.discovery.GenerateSequenceConstructsGenome \
+  "$WORKING_DIR" "$GENOME_FASTA" "$LEGACY_ARG" "$NORMALISE_ARG"
+
+[[ -s "${WORKING_DIR}/Constructs.fa" ]] \
+  || die "No backsplice constructs were generated. Check that the genome FASTA sequence names match the STAR index."
+[[ -s "${WORKING_DIR}/Can.fa" ]] \
+  || die "No canonical junction constructs were generated; junction-per-million values cannot be computed."
+
+bowtie2-build --threads "$THREADS" "${WORKING_DIR}/Can.fa" "${WORKING_DIR}/canonical" \
+  >> "${WORKING_DIR}/bowtie-build.log" 2>&1
+bowtie2-build --threads "$THREADS" "${WORKING_DIR}/Constructs.fa" "${WORKING_DIR}/ptes" \
+  >> "${WORKING_DIR}/bowtie-build.log" 2>&1
+
+########################################################################## 4. re-mapping
+log "Stage 4/5: re-mapping reads to the candidate junctions"
+
+for target in "ptes:${WORKING_DIR}/ptes" "canonical:${WORKING_DIR}/canonical"; do
+  "$PYTHON" "${CODEBASE}/scripts/run_bowtie.py" \
+    --sample_id "$SAMPLE_ID" \
+    --fastq "$FASTQ_READS" \
+    --output_dir "$OUTPUT_DIR" \
+    --reference_index "${target#*:}" \
+    --logic_name "${target%%:*}" \
+    --threads "$THREADS"
+done
+
+########################################################################## 5. filtering
+log "Stage 5/5: filtering potential false positive predictions"
+
+java "${JAVA_OPTS[@]}" -cp "$CLASSPATH" \
+  bio.igm.utils.filter.PipelineFilter \
+  "$WORKING_DIR" "$JSPAN" "$PID" "${FILTER_ARGS[@]}" "$LEGACY_ARG"
+
+########################################################################## reporting
+if [[ ! -f "${WORKING_DIR}/pf-structures.bed" ]]; then
+  die "Filtering finished without producing pf-structures.bed; see ${WORKING_DIR}/run.log"
+fi
+
+CIRC_STRUCTURES=$(wc -l < "${WORKING_DIR}/pf-structures.bed" | tr -d ' ')
+CIRC_READS=$(wc -l < "${WORKING_DIR}/pf-supporting-reads.tab" | tr -d ' ')
+CJUNCS_READS=$(awk '{ sum += $5 } END { print sum + 0 }' "${WORKING_DIR}/pf-flanking-canonical-junctions.bed")
+TJR=$(( CIRC_READS + CJUNCS_READS ))
+
+log "Identified circRNAs:        $CIRC_STRUCTURES"
+log "circRNA supporting reads:   $CIRC_READS"
+log "Canonical junction reads:   $CJUNCS_READS"
+
+if (( TJR > 0 )); then
+  awk -v X="$TJR" 'BEGIN { OFS = "\t" } { print $1":"$2"-"$3":"$6, $5, ($5 / X) * 1000000 }' \
+    "${WORKING_DIR}/pf-structures.bed" > "${WORKING_DIR}/${SAMPLE_ID}_jpms.tsv"
+  log "Junctions per million written to ${WORKING_DIR}/${SAMPLE_ID}_jpms.tsv"
+else
+  warn "No junction-spanning reads were found; skipping junction-per-million normalisation"
+  : > "${WORKING_DIR}/${SAMPLE_ID}_jpms.tsv"
+fi
+
+########################################################################## cleanup
+if $KEEP_INTERMEDIATES; then
+  log "Keeping intermediate files (-k)"
+else
+  log "Removing intermediate alignment, construct and index files"
+  find "$WORKING_DIR" -maxdepth 1 -type f \
+    \( -name '*.ebwt' -o -name '*.bt2' -o -name '*.bt2l' \
+       -o -name '*.fa' -o -name '*.sam' -o -name '*.bam' -o -name '*.bam.bai' \) \
+    -delete
+fi
+
+log "Finished successfully at $(date)"
