@@ -32,7 +32,7 @@ if [ -z "${BASH_VERSION:-}" ]; then exec bash "$0" "$@"; fi
 set -euo pipefail
 
 DIR=""; TITLE=""; DEPOSITION=""; HOST="https://zenodo.org"
-DESCRIPTION=""; DRY_RUN=false; NEW_VERSION_OF=""
+DESCRIPTION=""; DRY_RUN=false; NEW_VERSION_OF=""; RETRIES="${RETRIES:-3}"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -42,6 +42,7 @@ while [ $# -gt 0 ]; do
     --deposition) DEPOSITION="$2"; shift 2 ;;
     --new-version-of) NEW_VERSION_OF="$2"; shift 2 ;;
     --sandbox) HOST="https://sandbox.zenodo.org"; shift ;;
+    --retries) RETRIES="$2"; shift 2 ;;
     --dry-run) DRY_RUN=true; shift ;;
     -h|--help) sed -n '2,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
@@ -164,18 +165,34 @@ BUCKET=$(api GET "/deposit/depositions/${DEPOSITION}" \
 
 for f in "${FILES[@]}"; do
   name="$(basename "$f")"
-  step "Uploading ${name}"
   # The bucket API streams a single PUT per file, which is what makes multi-gigabyte parts
-  # workable; the older /files form buffers and falls over.
-  code=$(auth_config | curl -sS --config - -o "$RESPONSE_FILE" -w '%{http_code}' \
-    -X PUT --upload-file "$f" \
-    "${BUCKET}/${name}")
-  if [ "$code" != "200" ] && [ "$code" != "201" ]; then
-    printf 'ERROR: upload of %s failed with HTTP %s: %s\n' \
-      "$name" "$code" "$(head -c 300 "$RESPONSE_FILE")" >&2
-    exit 1
-  fi
-  : > "$RESPONSE_FILE"
+  # workable; the older /files form buffers and falls over. Zenodo's gateway still returns
+  # 502 on a PUT that runs too long, so each file gets a few attempts: the failure is at the
+  # proxy, not in the data, and a retry usually lands.
+  attempt=1
+  while : ; do
+    step "Uploading ${name} (attempt ${attempt}/${RETRIES})"
+    code=$(auth_config | curl -sS --config - -o "$RESPONSE_FILE" -w '%{http_code}' \
+      --connect-timeout 30 \
+      -X PUT --upload-file "$f" \
+      "${BUCKET}/${name}" || echo 000)
+    if [ "$code" = "200" ] || [ "$code" = "201" ]; then
+      : > "$RESPONSE_FILE"
+      break
+    fi
+    if [ "$attempt" -ge "$RETRIES" ]; then
+      printf 'ERROR: upload of %s failed with HTTP %s after %s attempt(s): %s\n' \
+        "$name" "$code" "$attempt" "$(head -c 200 "$RESPONSE_FILE" | tr -d '\n')" >&2
+      if [ "$code" = "502" ] || [ "$code" = "504" ]; then
+        printf '       A %s on a large PUT is Zenodo timing the request out at its proxy.\n' "$code" >&2
+        printf '       Repack with a smaller --max-part-size and try again.\n' >&2
+      fi
+      exit 1
+    fi
+    printf '    HTTP %s; retrying in %ss\n' "$code" "$((attempt * 30))" >&2
+    sleep "$((attempt * 30))"
+    attempt=$((attempt + 1))
+  done
 done
 
 step "Done. The draft is NOT published."

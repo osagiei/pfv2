@@ -29,8 +29,8 @@
 #
 # --out needs free space roughly equal to the reference, since the parts are written
 # alongside it: about 27 GB for a mouse set whose STAR index alone is 26 GB. Archives above
-# --max-part-size (default 4G) are split, because Zenodo's gateway returns 502 on a single
-# upload of tens of gigabytes; `ptesfinder fetch-references` reassembles them.
+# --max-part-size (default 2G) are split, because Zenodo's gateway returns 502 on a large
+# single upload; `ptesfinder fetch-references` reassembles them.
 #
 if [ -z "${BASH_VERSION:-}" ]; then exec bash "$0" "$@"; fi
 set -euo pipefail
@@ -38,8 +38,9 @@ set -euo pipefail
 GENOME=""; CDNA=""; STAR_DIR=""; BT2_GENOME=""; BT2_TX=""; GTF=""
 NAME="reference"; OUT=""; THREADS="${THREADS:-8}"
 # Zenodo's gateway returns 502 on a single upload of tens of gigabytes, so archives above
-# this are split and reassembled on fetch. 4G is comfortably below where it starts failing.
-MAX_PART="${MAX_PART:-4G}"
+# this are split and reassembled on fetch. Measured: a 3.37 GB PUT succeeded and a 4 GB one
+# returned 502, so the proxy gives up somewhere just under 4 GB; 2G leaves real headroom.
+MAX_PART="${MAX_PART:-2G}"
 
 while [ $# -gt 0 ]; do
   case "$1" in
