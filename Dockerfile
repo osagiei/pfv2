@@ -3,9 +3,9 @@
 # One image carrying PFv2 and the three tools it shells out to, so a run needs nothing from
 # the host but the reads and a reference.
 #
-#   docker build -t conidiobolus/pfv2:2.2.0 .
-#   docker run --rm conidiobolus/pfv2:2.2.0 --help
-#   docker run --rm conidiobolus/pfv2:2.2.0 selftest
+#   docker build -t conidiobolus/pfv2:2.2.1 .
+#   docker run --rm conidiobolus/pfv2:2.2.1 --help
+#   docker run --rm conidiobolus/pfv2:2.2.1 selftest
 #
 # The entrypoint is the `ptesfinder` CLI, also installed as `pfv2`.
 #
@@ -31,7 +31,7 @@ RUN bash setup.sh
 # ---------------------------------------------------------------- runtime
 FROM mambaorg/micromamba:1.5.8
 
-ARG PFV2_VERSION=2.2.0
+ARG PFV2_VERSION=2.2.1
 
 LABEL org.opencontainers.image.title="pfv2" \
       org.opencontainers.image.description="PTESFinder v2: annotation-free backsplice junction identification from RNA-seq" \

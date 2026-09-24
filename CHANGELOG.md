@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.2.1
+
+Packaging only. No change to how any junction is called.
+
+- The CI shell check named a script that had moved, so the lint job failed on a file that no
+  longer existed. Scripts are now discovered with `git ls-files` rather than listed.
+- The image workflow only triggered on `v`-prefixed tags, but this project tags bare semver,
+  so tagging published nothing and said nothing. Both styles now work.
+- The publish job is skipped, not failed, when Docker Hub credentials are absent. A release
+  should not be marked red because an optional step has no secrets.
+- Typographic punctuation is replaced with ASCII throughout. Smart quotes inside shell and
+  Python string literals are an encoding hazard.
+
 ## 2.2.0
 
 A correctness pass over the filter and construct stages, plus container and cluster
