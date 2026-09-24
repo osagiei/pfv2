@@ -214,13 +214,13 @@ public class AnnotateStructures {
     }
 
     private void annotate_non_exonic_structures() throws IOException {
-        Map<String, Range> transcripts = new HashMap<>();
+        Map<String, Range<Integer>> transcripts = new HashMap<>();
         BufferedReader br = new BufferedReader(new FileReader(transcripts_bed));
         String line = "";
         while ((line = br.readLine()) != null) {
             String[] temp = line.split("\t");
             String id = temp[0] + ":" + temp[1] + "-" + temp[2] + ":" + temp[5];
-            Range r = Range.between(Integer.parseInt(temp[1]), Integer.parseInt(temp[2]));
+            Range<Integer> r = Range.between(Integer.parseInt(temp[1]), Integer.parseInt(temp[2]));
             transcripts.put(id, r);
         }
         br.close();
@@ -231,7 +231,7 @@ public class AnnotateStructures {
                 boolean found = false;
                 for (String s : transcripts.keySet()) {
                     String strand = s.split(":")[2];
-                    Range r = transcripts.get(s);
+                    Range<Integer> r = transcripts.get(s);
                     if (r.contains(structure.getStart())) {
                         found = true;
                         if (!strand.equalsIgnoreCase(structure.getStrand())) {

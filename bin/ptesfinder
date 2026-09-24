@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+#
+# ptesfinder -- single entry point for PTESFinder v2.
+#
+# The same script is the container image's entrypoint, so a subcommand behaves identically
+# whether it is run from a checkout, from an install on PATH, or inside the image:
+#
+#   ptesfinder run -i S1 -r reads.fq.gz -d out/ -g genome.fa -S star/ -b idx/genome -t idx/tx -l 150
+#   ptesfinder validate --genome genome.fa --star-index star/ --bowtie2-genome idx/genome
+#   ptesfinder fetch-references 10.5281/zenodo.XXXXXXX -d refs/
+#   ptesfinder selftest
+#   ptesfinder version
+#
+# Installed as `pfv2` as well, so either name works. Every invocation reports which release
+# it is: "PTESFinder" alone is ambiguous across releases, and v1 is a different tool with
+# different semantics, so `version` names the release rather than leaving it implied.
+#
+# Bare pipeline flags are accepted without the `run` subcommand, so existing PFv2.sh
+# invocations keep working when the script name is swapped.
+if [ -z "${BASH_VERSION:-}" ]; then
+  exec bash "$0" "$@"
+fi
+set -euo pipefail
+
+# Honour an explicit PFV2_HOME (the image sets it), otherwise derive it from this script's
+# location so a checkout works with no configuration.
+#
+# The symlink chain has to be followed one hop at a time: this script is reached both as
+# `pfv2`, a relative symlink beside it, and as an absolute symlink from PREFIX/bin planted
+# by `make install`. Resolving only the first hop, or not resolving at all, gets one of
+# those two cases wrong.
+if [ -z "${PFV2_HOME:-}" ]; then
+  _self="${BASH_SOURCE[0]}"
+  while [ -L "$_self" ]; do
+    _link="$(readlink "$_self")"
+    case "$_link" in
+      /*) _self="$_link" ;;
+      *)  _self="$(dirname "$_self")/$_link" ;;
+    esac
+  done
+  PFV2_HOME="$(cd "$(dirname "$_self")/.." && pwd)"
+  unset _self _link
+fi
+export PFV2_HOME
+
+PROGRAM="$(basename "${BASH_SOURCE[0]}")"
+
+usage() {
+cat <<USAGE
+
+${PROGRAM} -- PTESFinder v2: annotation-free identification of post-transcriptional exon
+shuffling (PTES) / backsplice junctions from RNA-seq.
+
+Usage:
+        ${PROGRAM} <command> [options]
+        ${PROGRAM} [pipeline options]    same as \`${PROGRAM} run\`
+
+Commands:
+        run                identify backsplice junctions in one sample
+        validate           check reads and references without running anything
+        fetch-references   download a prebuilt reference set from a Zenodo record
+        selftest           run the end-to-end smoke test
+        version            print the PFv2 and aligner versions
+        help               show this message
+
+Run \`${PROGRAM} run --help\` for the pipeline options, or \`${PROGRAM} validate --help\`
+and \`${PROGRAM} fetch-references --help\` for those commands.
+
+USAGE
+}
+
+versions() {
+  # Names the release explicitly: "PTESFinder" without a version does not identify a tool.
+  printf 'PTESFinder v2 (PFv2) %s\n' "$(grep -m1 '^readonly VERSION=' "${PFV2_HOME}/PFv2.sh" | cut -d'"' -f2)"
+  for tool in STAR bowtie2 samtools java; do
+    if command -v "$tool" >/dev/null 2>&1; then
+      case "$tool" in
+        STAR)     printf 'STAR                 %s\n' "$(STAR --version 2>/dev/null)" ;;
+        bowtie2)  printf 'bowtie2              %s\n' "$(bowtie2 --version 2>/dev/null | head -1 | awk '{print $NF}')" ;;
+        samtools) printf 'samtools             %s\n' "$(samtools --version 2>/dev/null | head -1 | awk '{print $NF}')" ;;
+        java)     printf 'java                 %s\n' "$(java -version 2>&1 | head -1 | cut -d'"' -f2)" ;;
+      esac
+    else
+      printf '%-20s not installed\n' "$tool"
+    fi
+  done
+}
+
+PYTHON="${PYTHON:-python3}"
+
+case "${1:-}" in
+  ""|-h|--help|help)
+    usage
+    ;;
+  run)
+    shift
+    # PFv2.sh takes single-character options, so translate the long help form.
+    case "${1:-}" in
+      --help) exec bash "${PFV2_HOME}/PFv2.sh" -h ;;
+    esac
+    exec bash "${PFV2_HOME}/PFv2.sh" -c "$PFV2_HOME" "$@"
+    ;;
+  validate)
+    shift
+    exec "$PYTHON" "${PFV2_HOME}/scripts/validate_inputs.py" "$@"
+    ;;
+  fetch-references)
+    shift
+    exec "$PYTHON" "${PFV2_HOME}/scripts/fetch_references.py" "$@"
+    ;;
+  selftest)
+    shift
+    exec bash "${PFV2_HOME}/test/smoke/run.sh" "$@"
+    ;;
+  version|--version)
+    versions
+    ;;
+  bash|sh)
+    exec "$@"
+    ;;
+  -*)
+    # Bare pipeline flags.
+    exec bash "${PFV2_HOME}/PFv2.sh" -c "$PFV2_HOME" "$@"
+    ;;
+  *)
+    printf '%s: unknown command: %s\n' "$PROGRAM" "$1" >&2
+    usage >&2
+    exit 2
+    ;;
+esac

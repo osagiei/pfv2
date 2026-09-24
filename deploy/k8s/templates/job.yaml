@@ -1,0 +1,194 @@
+{{- if not .Values.samples }}
+{{- fail "set .Values.samples to at least one {id, fastq} entry; see deploy/k8s/values.yaml" }}
+{{- end }}
+{{- $root := . }}
+{{- $seen := dict }}
+{{- range $sample := .Values.samples }}
+{{- if not $sample.id }}{{ fail "every entry in .Values.samples needs an id" }}{{ end }}
+{{- if not $sample.fastq }}{{ fail (printf "sample %s has no fastq path" $sample.id) }}{{ end }}
+{{- if hasKey $seen $sample.id }}
+{{- fail (printf "sample id %s appears more than once in .Values.samples" $sample.id) }}
+{{- end }}
+{{- $_ := set $seen $sample.id true }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "pfv2.jobName" (dict "root" $root "sample" $sample) }}
+  labels:
+    {{- include "pfv2.labels" $root | nindent 4 }}
+    pfv2.io/sample: {{ $sample.id | quote }}
+spec:
+  backoffLimit: {{ $root.Values.job.backoffLimit }}
+  ttlSecondsAfterFinished: {{ $root.Values.job.ttlSecondsAfterFinished }}
+  activeDeadlineSeconds: {{ $root.Values.job.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        {{- include "pfv2.labels" $root | nindent 8 }}
+        pfv2.io/sample: {{ $sample.id | quote }}
+        {{- with $root.Values.podLabels }}{{- toYaml . | nindent 8 }}{{- end }}
+      {{- with $root.Values.podAnnotations }}
+      annotations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      restartPolicy: {{ $root.Values.job.restartPolicy }}
+      serviceAccountName: {{ include "pfv2.serviceAccountName" $root }}
+      {{- with $root.Values.image.pullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext: {{- toYaml $root.Values.podSecurityContext | nindent 8 }}
+      {{- with $root.Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $root.Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $root.Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      initContainers:
+        {{- if $root.Values.reference.zenodo.enabled }}
+        {{- if not $root.Values.reference.zenodo.record }}
+        {{- fail "reference.zenodo.enabled is true but reference.zenodo.record is empty" }}
+        {{- end }}
+        # Fetches the reference before the run starts, verifying each file against the MD5
+        # Zenodo publishes. A file that does not match is deleted rather than used, so the
+        # run cannot proceed on a truncated genome.
+        - name: fetch-reference
+          image: {{ include "pfv2.image" $root }}
+          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          securityContext: {{- toYaml $root.Values.securityContext | nindent 12 }}
+          args:
+            - fetch-references
+            - {{ $root.Values.reference.zenodo.record | quote }}
+            - --dest
+            - /refs
+            - --manifest
+            - /refs/zenodo-manifest.json
+            {{- if $root.Values.reference.zenodo.latest }}
+            - --latest
+            {{- end }}
+            {{- with $root.Values.reference.zenodo.only }}
+            - --only
+            {{- range . }}
+            - {{ . | quote }}
+            {{- end }}
+            {{- end }}
+          volumeMounts:
+            - { name: reference, mountPath: /refs }
+            - { name: tmp, mountPath: /tmp }
+        {{- end }}
+
+        # Validation is its own container so a naming mismatch between the genome FASTA and
+        # the STAR index fails in seconds, before any compute is spent on mapping.
+        - name: validate
+          image: {{ include "pfv2.image" $root }}
+          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          securityContext: {{- toYaml $root.Values.securityContext | nindent 12 }}
+          args:
+            - validate
+            - --fastq
+            - {{ $sample.fastq | quote }}
+            - --genome
+            - {{ $root.Values.reference.genomeFasta | quote }}
+            - --star-index
+            - {{ $root.Values.reference.starIndex | quote }}
+            - --bowtie2-genome
+            - {{ $root.Values.reference.bowtie2Genome | quote }}
+            - --bowtie2-transcriptome
+            - {{ $root.Values.reference.bowtie2Transcriptome | quote }}
+            - --read-length
+            - {{ default $root.Values.params.readLength $sample.readLength | quote }}
+            - --json
+            - /work/{{ $sample.id }}-validation.json
+          volumeMounts:
+            - { name: reference, mountPath: /refs, readOnly: true }
+            - { name: reads, mountPath: /reads, readOnly: true }
+            - { name: output, mountPath: /work }
+            - { name: tmp, mountPath: /tmp }
+
+      containers:
+        - name: pfv2
+          image: {{ include "pfv2.image" $root }}
+          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          securityContext: {{- toYaml $root.Values.securityContext | nindent 12 }}
+          args:
+            - run
+            - -i
+            - {{ $sample.id | quote }}
+            - -r
+            - {{ $sample.fastq | quote }}
+            - -d
+            - /scratch
+            - -g
+            - {{ $root.Values.reference.genomeFasta | quote }}
+            - -S
+            - {{ $root.Values.reference.starIndex | quote }}
+            - -b
+            - {{ $root.Values.reference.bowtie2Genome | quote }}
+            - -t
+            - {{ $root.Values.reference.bowtie2Transcriptome | quote }}
+            - -l
+            - {{ default $root.Values.params.readLength $sample.readLength | quote }}
+            - -j
+            - {{ $root.Values.params.junctionSpan | quote }}
+            - -p
+            - {{ $root.Values.params.pid | quote }}
+            - -C
+            - {{ $root.Values.params.maxGenomicSpan | quote }}
+            - -M
+            - {{ $root.Values.params.minGenomicSpan | quote }}
+            - -n
+            - {{ $root.Values.params.threads | quote }}
+            - -m
+            - {{ $root.Values.params.javaHeap | quote }}
+            {{- if eq $root.Values.params.filters "genomic" }}
+            - -G
+            {{- else if eq $root.Values.params.filters "transcriptomic" }}
+            - -T
+            {{- end }}
+            {{- if $root.Values.params.keepIntermediates }}
+            - -k
+            {{- end }}
+            {{- if $root.Values.params.legacy }}
+            - -L
+            {{- end }}
+            {{- if $root.Values.params.alignedStrand }}
+            - -A
+            {{- end }}
+            # Validation already ran as an init container; repeating it would only re-read
+            # the whole reference.
+            - -V
+          resources: {{- toYaml $root.Values.resources | nindent 12 }}
+          volumeMounts:
+            - { name: reference, mountPath: /refs, readOnly: true }
+            - { name: reads, mountPath: /reads, readOnly: true }
+            - { name: output, mountPath: /work }
+            - { name: scratch, mountPath: /scratch }
+            - { name: tmp, mountPath: /tmp }
+
+        # Results are copied out of scratch on completion, so the large intermediates never
+        # touch the output volume.
+      volumes:
+        - name: reference
+          persistentVolumeClaim:
+            claimName: {{ $root.Values.storage.reference.claimName }}
+        - name: reads
+          persistentVolumeClaim:
+            claimName: {{ $root.Values.storage.reads.claimName }}
+        - name: output
+          persistentVolumeClaim:
+            claimName: {{ $root.Values.storage.output.claimName }}
+        - name: scratch
+          emptyDir:
+            sizeLimit: {{ $root.Values.storage.scratch.sizeLimit }}
+            {{- with $root.Values.storage.scratch.medium }}
+            medium: {{ . }}
+            {{- end }}
+        # readOnlyRootFilesystem is on, so anything that writes to /tmp needs this.
+        - name: tmp
+          emptyDir:
+            sizeLimit: 8Gi
+{{- end }}

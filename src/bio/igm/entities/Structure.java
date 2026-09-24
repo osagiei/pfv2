@@ -15,7 +15,7 @@ public class Structure {
     String sequence;
     int size, As, Ts, Cs, Gs;
     double gc, at, jpm, mirna_bs_density;
-    Range outer_left, outer_right, inner, ss5, ss3;
+    Range<Integer> outer_left, outer_right, inner, ss5, ss3;
     int right_alus, left_alus, mirna_bs, ss_count;
     boolean exonic, exon_inton, intronic;
 
@@ -81,8 +81,8 @@ public class Structure {
         for (String s : exons.values()) {
             if (chromosome.equalsIgnoreCase(s.split("\t")[0])) {
 
-                Range _start = Range.between(Integer.parseInt(s.split("\t")[1]) - 1, Integer.parseInt(s.split("\t")[1]) + 1);
-                Range _stop = Range.between(Integer.parseInt(s.split("\t")[2]) - 1, Integer.parseInt(s.split("\t")[2]) + 1);
+                Range<Integer> _start = Range.between(Integer.parseInt(s.split("\t")[1]) - 1, Integer.parseInt(s.split("\t")[1]) + 1);
+                Range<Integer> _stop = Range.between(Integer.parseInt(s.split("\t")[2]) - 1, Integer.parseInt(s.split("\t")[2]) + 1);
                 String _id = s.split("\t")[3];
 
                 int exon_order = Integer.parseInt(s.split("\t")[4]);

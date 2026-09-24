@@ -9,7 +9,7 @@ import java.util.Map;
  */
 public class PTES {
 
-    Map<String, Reads> reads = new HashMap();
+    Map<String, Reads> reads = new HashMap<String, Reads>();
     String id, splice_signal;
     String locus;
     int count;
