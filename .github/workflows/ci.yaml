@@ -53,11 +53,16 @@ jobs:
           python-version: "3.12"
       - name: Compile the Python helpers
         run: python -m compileall -q scripts deploy/prefect
+      # Discovered rather than listed: a hardcoded list goes stale the moment a script is
+      # moved, and the failure looks like a broken script rather than a stale workflow.
       - name: Shell syntax
         run: |
-          for f in PFv2.sh setup.sh docker/entrypoint.sh test/smoke/run.sh; do
-            bash -n "$f"
-          done
+          failed=0
+          while IFS= read -r f; do
+            printf 'checking %s\n' "$f"
+            bash -n "$f" || failed=1
+          done < <(git ls-files '*.sh' bin/ | sort)
+          exit "$failed"
       - name: Helm chart
         run: |
           curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash

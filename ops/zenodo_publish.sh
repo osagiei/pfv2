@@ -89,15 +89,15 @@ if kind == "testdata":
             "an annotation-free method for identifying post-transcriptional exon shuffling "
             "(PTES) / backsplice junctions from RNA-seq data.</p>"
             "<p>Contents:</p><ul>"
-            "<li><code>genome.fa</code> — chromosome 17 of GRCm38 (Ensembl release 102)</li>"
-            "<li><code>transcriptome.fa</code> — the Ensembl 102 cDNA records on that chromosome</li>"
-            "<li><code>bl6-chr17.fq.gz</code> — single-end reads sufficient to rediscover the "
+            "<li><code>genome.fa</code> - chromosome 17 of GRCm38 (Ensembl release 102)</li>"
+            "<li><code>transcriptome.fa</code> - the Ensembl 102 cDNA records on that chromosome</li>"
+            "<li><code>bl6-chr17.fq.gz</code> - single-end reads sufficient to rediscover the "
             "backsplice junctions PFv2 calls there, comprising the chimeric reads STAR reported "
             "within the chromosome, the reads supporting the calls, and a background sample</li>"
-            "<li><code>expected/pf-structures.bed</code> — the junctions a full-depth run called "
+            "<li><code>expected/pf-structures.bed</code> - the junctions a full-depth run called "
             "on this chromosome, for comparison</li></ul>"
             "<p><strong>Sequence naming:</strong> contigs are Ensembl-named "
-            "(<code>1</code>…<code>19</code>, <code>X</code>, <code>Y</code>) with no "
+            "(<code>1</code>...<code>19</code>, <code>X</code>, <code>Y</code>) with no "
             "<code>chr</code> prefix. This is not interchangeable with a UCSC mm10 reference; "
             "mixing the two conventions produces an empty result rather than an error.</p>"
             "<p>Reads derive from C57BL/6 mouse RNA-seq. See <code>MANIFEST.json</code> for "
@@ -114,10 +114,10 @@ else:
             "about an hour and ~32 GB of RAM, so they are published rather than rebuilt per "
             "site; using identical indexes also makes results comparable between groups.</p>"
             "<p>Contents (each a gzipped tar archive):</p><ul>"
-            "<li><code>sequence</code> — GRCm38 genome FASTA and Ensembl 102 cDNA</li>"
-            "<li><code>star-index</code> — STAR genome index, split into 4 GB parts</li>"
-            "<li><code>bowtie2-genome</code> — Bowtie2 genome index</li>"
-            "<li><code>bowtie2-transcriptome</code> — Bowtie2 transcriptome index</li></ul>"
+            "<li><code>sequence</code> - GRCm38 genome FASTA and Ensembl 102 cDNA</li>"
+            "<li><code>star-index</code> - STAR genome index, split into 4 GB parts</li>"
+            "<li><code>bowtie2-genome</code> - Bowtie2 genome index</li>"
+            "<li><code>bowtie2-transcriptome</code> - Bowtie2 transcriptome index</li></ul>"
             "<p><strong>Reassembling the STAR index:</strong> the archive is published as "
             "<code>.partNN</code> files because a single upload of that size is rejected. Rejoin "
             "with <code>cat GRCm38-ensembl102-star-index.tar.gz.part* &gt; "
@@ -125,7 +125,7 @@ else:
             "<code>WHOLE-SHA256SUMS</code>. PFv2's <code>ptesfinder fetch-references</code> does "
             "this automatically.</p>"
             "<p><strong>Sequence naming:</strong> contigs are Ensembl-named "
-            "(<code>1</code>…<code>19</code>, <code>X</code>, <code>Y</code>) with no "
+            "(<code>1</code>...<code>19</code>, <code>X</code>, <code>Y</code>) with no "
             "<code>chr</code> prefix, and are not interchangeable with a UCSC mm10 reference.</p>"
             "<p><strong>Aligner versions:</strong> the STAR index has genome format version "
             "2.7.4a and <code>sjdbOverhang</code> 149, built with STAR 2.7.11b. STAR refuses an "
@@ -160,7 +160,7 @@ if ! $PUBLISH; then
   exit 0
 fi
 
-step "Publishing — this cannot be undone"
+step "Publishing - this cannot be undone"
 code=$(auth_config | curl -sS --config - -o "$RESPONSE" -w '%{http_code}' \
   -X POST "${HOST}/api/deposit/depositions/${DEPOSITION}/actions/publish")
 if [ "$code" != "202" ] && [ "$code" != "200" ]; then
