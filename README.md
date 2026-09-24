@@ -135,7 +135,18 @@ builds its own:
 ptesfinder fetch-references 10.5281/zenodo.22929143 --latest -d /data/refs --only star_index
 ```
 
-The reference set is published as four archives. The STAR index is split into 4 GB parts
+If the STAR index is not in the record, or you would rather match the STAR you have, build
+it from the published genome — an index is tied to the genome format version that wrote it,
+so a locally built one can never be the wrong vintage:
+
+```bash
+bash ops/build_indexes.sh --genome /data/refs/genome.fa --transcriptome /data/refs/transcriptome.cdna.fa --read-length 150 --out /data/refs/indexes --threads 16
+```
+
+Budget about an hour and 32 GB of RAM for a mammalian STAR index. `--only star` builds just
+that one.
+
+The reference set is published as archives. The STAR index is split into 4 GB parts
 because a single upload that large is rejected by Zenodo's gateway; `fetch-references` rejoins
 them and checks the result against the whole-file checksum, so the split is invisible unless
 a part fails to download.

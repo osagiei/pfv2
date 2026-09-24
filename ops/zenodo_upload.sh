@@ -28,6 +28,9 @@
 #
 #   --sandbox targets sandbox.zenodo.org, which is the right place to rehearse a 30 GB upload.
 #
+# Re-running against the same deposition is safe and cheap: files already present with a
+# matching size are skipped, so an interrupted upload resumes rather than starting over.
+#
 if [ -z "${BASH_VERSION:-}" ]; then exec bash "$0" "$@"; fi
 set -euo pipefail
 
@@ -159,12 +162,37 @@ PY
   step "Draft deposition ${DEPOSITION}"
 fi
 
-BUCKET=$(api GET "/deposit/depositions/${DEPOSITION}" \
-  | python3 -c "import json,sys; print((json.load(sys.stdin).get('links') or {}).get('bucket',''))" 2>/dev/null || true)
+api GET "/deposit/depositions/${DEPOSITION}" > "$RESPONSE_FILE" || true
+BUCKET=$(python3 -c "
+import json
+d = json.load(open('$RESPONSE_FILE'))
+print((d.get('links') or {}).get('bucket',''))
+" 2>/dev/null || true)
 [ -n "$BUCKET" ] || die "could not read the bucket URL for deposition ${DEPOSITION}"
 
+# Files already on the deposition, as name:size. A large upload over a flaky link gets
+# retried often, and re-sending a part that already landed wastes the very bandwidth that
+# made it fail. Matching on size as well as name means a truncated earlier attempt is
+# re-sent rather than trusted.
+EXISTING="$(python3 -c "
+import json
+d = json.load(open('$RESPONSE_FILE'))
+for f in d.get('files', []):
+    name = f.get('filename') or f.get('key') or ''
+    size = f.get('filesize') or f.get('size') or 0
+    if name:
+        print(f'{name}:{size}')
+" 2>/dev/null || true)"
+
+SKIPPED=0
 for f in "${FILES[@]}"; do
   name="$(basename "$f")"
+  local_size=$(wc -c < "$f" | tr -d ' ')
+  if printf '%s\n' "$EXISTING" | grep -qxF "${name}:${local_size}"; then
+    printf '    already uploaded, skipping %s\n' "$name"
+    SKIPPED=$((SKIPPED + 1))
+    continue
+  fi
   # The bucket API streams a single PUT per file, which is what makes multi-gigabyte parts
   # workable; the older /files form buffers and falls over. Zenodo's gateway still returns
   # 502 on a PUT that runs too long, so each file gets a few attempts: the failure is at the
@@ -195,6 +223,7 @@ for f in "${FILES[@]}"; do
   done
 done
 
+[ "$SKIPPED" -gt 0 ] && step "${SKIPPED} file(s) were already present and were not re-sent"
 step "Done. The draft is NOT published."
 printf '    Review and publish at: %s/deposit/%s\n' "$HOST" "$DEPOSITION"
 printf '    Once published, wire the record into the README and test/e2e/run.sh:\n'
