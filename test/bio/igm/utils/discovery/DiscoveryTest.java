@@ -118,8 +118,20 @@ public final class DiscoveryTest {
                 p.chimericRecordToAnchors(chimeric("chr1", 1000, "-", "chr1", 5000, "+", 1, 0, 0)));
         Assert.equals("the mitochondrial genome is excluded", null,
                 p.chimericRecordToAnchors(chimeric("chrM", 1000, "-", "chrM", 5000, "-", 1, 0, 0)));
-        Assert.equals("repeats at the breakpoint are rejected", null,
-                p.chimericRecordToAnchors(chimeric("chr1", 1000, "-", "chr1", 5000, "-", 1, 2, 0)));
+        // The published method describes no breakpoint repeat filter and leaves that
+        // ambiguity to the junction span and percent identity filters, so a repeat is kept
+        // unless the filter is asked for.
+        Assert.isTrue("a breakpoint repeat is kept by default",
+                p.chimericRecordToAnchors(
+                        chimeric("chr1", 1000, "-", "chr1", 5000, "-", 1, 2, 0)) != null);
+        ProcessShuffledCoordinates repeats =
+                new ProcessShuffledCoordinates(dir.getPath(), 100000, 50, 85, false, true);
+        Assert.equals("and rejected when the filter is switched on", null,
+                repeats.chimericRecordToAnchors(
+                        chimeric("chr1", 1000, "-", "chr1", 5000, "-", 1, 2, 0)));
+        Assert.isTrue("a one base repeat is kept either way",
+                repeats.chimericRecordToAnchors(
+                        chimeric("chr1", 1000, "-", "chr1", 5000, "-", 1, 1, 1)) != null);
         Assert.equals("junction type -1 is rejected", null,
                 p.chimericRecordToAnchors(chimeric("chr1", 1000, "-", "chr1", 5000, "-", -1, 0, 0)));
         Assert.equals("spans below the minimum are rejected", null,

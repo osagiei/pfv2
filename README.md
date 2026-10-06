@@ -327,9 +327,25 @@ script, so it only needs passing when the code lives somewhere else.
 | `-T` | off | run the transcriptomic filter only |
 | `-k` | off | keep intermediate SAM/FASTA/index files |
 | `-L` | off | reproduce the filter semantics of releases up to 2.1.0 |
+| `-R` | off | discard chimeric records with a breakpoint repeat longer than 1 bp |
+| `-X` | off | apply the stricter 2.2-to-2.3 filter set |
+| `-Q` | unset | Bowtie2 `--score-min` for every realignment, e.g. `C,-15,0` |
 | `-A` | off | report STAR's aligned strand instead of the motif-derived one |
 | `-V` | off | skip input and reference validation |
 | `-h` | | show usage |
+
+### Filter rules
+
+The filters are v1's, as specified in the paper. The only intended difference between v1 and
+v2 is STAR in place of anchor mapping at discovery.
+
+By default a perfect match to a construct is accepted without the junction window test,
+competing alignments are ranked on aligned bases and edit distance, canonical constructs
+serve only as the normalisation denominator, no breakpoint repeat filter is applied, and
+realignment uses Bowtie2's default score threshold.
+
+Releases 2.2.0 to 2.3.0 tightened each of those. `-X` restores that filter set, `-R` the
+repeat filter, and `-Q C,-15,0` the score threshold those releases used.
 
 ### The strand column
 

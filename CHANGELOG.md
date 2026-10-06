@@ -1,5 +1,47 @@
 # Changelog
 
+## 2.4.0
+
+Realigns the filters with the published method and the v1 implementation. Releases 2.2.0 to
+2.3.0 tightened several rules on reasoning rather than on the specification; this reverts
+those defaults and keeps each one reachable by flag.
+
+The reference for every item below is Izuogu et al., BMC Bioinformatics 17:31 (2016) and the
+v1 source at https://sourceforge.net/projects/ptesfinder-v1/. The only intended difference
+between v1 and v2 is STAR as the discovery aligner; the filters are v1's.
+
+### Reverted to the published method - this changes results
+
+- **A perfect match to a construct is accepted again without the junction window test.**
+  v1 does this, and the method does not require otherwise: a read that spans the seam passes
+  the window anyway, so the exemption only ever reaches reads that do not. 2.2.0 removed it.
+  `-X` restores the stricter behaviour.
+
+- **Competing alignments are ranked on aligned bases and edit distance again.** The method
+  specifies "edit distance (NM field) and perfectly aligned base pairs", and v1 implements
+  exactly `aligned >= other && edits < other`. 2.2.0 switched the default to Bowtie2's
+  alignment score; that is now `-X`.
+
+- **Canonical junctions no longer compete for reads.** v1 builds canonical constructs to
+  supply the normalisation denominator and has no class that uses them as competitors; the
+  method describes no such comparison. Added in 2.2.0, now under `-X`.
+
+- **The breakpoint repeat filter is off by default.** It appears in neither the paper nor
+  v1, and entered this implementation on 2018-12-10, after publication. The method resolves
+  breakpoint ambiguity with the junction span and percent identity filters. `-R` restores it.
+
+- **Realignment uses Bowtie2's default score threshold.** v1 runs `--very-sensitive` with no
+  `--score-min`. Releases 2.0.0 to 2.3.0 passed `C,-15,0`, which caps the total penalty at 15
+  regardless of read length and so discards reads before the junction filters see them.
+  `-Q C,-15,0` restores it.
+
+### Kept
+
+The off-by-one in the junction offset and the arm length are bug fixes, not rule changes: the
+seam is where it is, and the method specifies arms of exactly the segment length. The STAR
+splice-motif rule and the motif-derived strand are decisions in v2's own territory, since v1
+had no STAR. Single-end pooling from 2.3.0 is what the method requires.
+
 ## 2.3.0
 
 ### Fixed - this changes results for paired-end input

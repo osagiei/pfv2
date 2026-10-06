@@ -75,7 +75,7 @@ check "seam offset equals the first arm length" "85" "$ARM_LENGTH"
 
 echo ">>> Stage 5: filters"
 "$PYTHON" "${CODE}/test/smoke/make_fixtures.py" "$WORK" --stage sam >/dev/null
-java -cp "$CP" bio.igm.utils.filter.PipelineFilter "$W" 8 0.85 1 0 0 0 2>/dev/null
+java -cp "$CP" bio.igm.utils.filter.PipelineFilter "$W" 8 0.85 1 0 0 0 strict_2_2 2>/dev/null
 
 check "one backsplice survives" "1" "$(wc -l < "${W}/pf-structures.bed" | tr -d ' ')"
 check "BED row" \
@@ -92,9 +92,12 @@ check "read lost to a canonical junction" "read6" \
 check "non-spanning perfect match is rejected" "read2" \
   "$(cut -f1 "${W}/pf-junctional-filtered.sam" | sort -u | tr '\n' ' ' | sed 's/ $//')"
 
-echo ">>> Stage 5 again, legacy semantics"
-java -cp "$CP" bio.igm.utils.filter.PipelineFilter "$W" 8 0.85 1 0 0 1 2>/dev/null
-check "legacy mode accepts the non-spanning perfect match" "read1 read2 read4 read6" \
+echo ">>> Stage 5 again, reference rules (the published method and v1)"
+java -cp "$CP" bio.igm.utils.filter.PipelineFilter "$W" 8 0.85 1 0 0 0 reference 2>/dev/null
+# v1 accepts a perfect match without the window test and does not let canonical junctions
+# compete, so read2 and read6 come back.
+check "reference rules accept the perfect match and the canonical-competing read" \
+  "read1 read2 read4 read6" \
   "$(cut -f1 "${W}/pf-supporting-reads.tab" | sort | tr '\n' ' ' | sed 's/ $//')"
 
 if [ "$fail" -eq 0 ]; then

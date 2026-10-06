@@ -11,7 +11,7 @@ fi
 
 set -euo pipefail
 
-readonly VERSION="2.3.0"
+readonly VERSION="2.4.0"
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 ########################################################################## defaults
@@ -41,6 +41,9 @@ TRANSCRIPTOMIC_ONLY=false
 KEEP_INTERMEDIATES=false
 LEGACY=false
 SKIP_VALIDATION=false
+REPEAT_FILTER=false
+RULES=reference
+SCORE_MIN=
 NORMALISE_STRAND=true
 
 ########################################################################## helpers
@@ -100,6 +103,12 @@ Optional:
         -T  run the transcriptomic filter only, skipping the genomic comparison
         -k  keep intermediate SAM/FASTA/index files instead of deleting them
         -L  reproduce the filter semantics of releases up to 2.1.0 (see CHANGELOG)
+        -R  discard chimeric records with a breakpoint repeat longer than 1 bp. Off by
+            default: the published method leaves that ambiguity to -j and -p
+        -X  apply the stricter 2.2-to-2.3 filter set: require spanning, rank on alignment
+            score, and let canonical junctions compete for reads
+        -Q  Bowtie2 --score-min for every realignment, e.g. C,-15,0. Unset by default, as
+            PTESFinder v1 had it
         -V  skip input and reference validation
         -A  report the aligned strand STAR assigned instead of the strand implied by
             the splice motif; for reproducing pre-2.2.0 output only, see CHANGELOG
@@ -175,7 +184,7 @@ Install a newer JDK, or recompile for your JDK with 'bash setup.sh'."
 }
 
 ########################################################################## arguments
-while getopts ":r:i:d:t:g:b:l:p:j:c:S:C:M:n:m:GTkLVAh" opt; do
+while getopts ":r:i:d:t:g:b:l:p:j:c:S:C:M:n:m:Q:GTkLVARXh" opt; do
   case $opt in
     # Repeatable, and a comma separated list is accepted too. Every file given is pooled
     # and mapped single-end: PTESFinder does not use paired-end information at discovery.
@@ -198,6 +207,9 @@ while getopts ":r:i:d:t:g:b:l:p:j:c:S:C:M:n:m:GTkLVAh" opt; do
     T) TRANSCRIPTOMIC_ONLY=true ;;
     k) KEEP_INTERMEDIATES=true ;;
     L) LEGACY=true ;;
+    R) REPEAT_FILTER=true ;;
+    X) RULES=strict_2_2 ;;
+    Q) SCORE_MIN="$OPTARG" ;;
     V) SKIP_VALIDATION=true ;;
     A) NORMALISE_STRAND=false ;;
     h) usage; exit 0 ;;
@@ -324,6 +336,9 @@ fi
 # Legacy mode reproduces pre-2.2.0 output, which reported the aligned strand.
 $LEGACY && NORMALISE_STRAND=false
 if $NORMALISE_STRAND; then NORMALISE_ARG=1; else NORMALISE_ARG=0; fi
+if $REPEAT_FILTER; then REPEAT_ARG=1; else REPEAT_ARG=0; fi
+SCORE_MIN_ARG=()
+[[ -n "$SCORE_MIN" ]] && SCORE_MIN_ARG=(--score-min "$SCORE_MIN")
 
 if $LEGACY; then
   LEGACY_ARG=1
@@ -343,6 +358,8 @@ log "Read length:   $READ_LENGTH (construct arm: $SEGMENT_SIZE bp)"
 log "Backsplice span: ${MIN_GENOMIC_SPAN}-${MAX_GENOMIC_SPAN} bp"
 log "Junction span:   $JSPAN, percent identity: $PID"
 log "Filters:         $FILTER_DESC"
+log "Rules:           $RULES$($REPEAT_FILTER && printf ', breakpoint repeat filter on')"
+[[ -n "$SCORE_MIN" ]] && log "Bowtie2 score:   --score-min=$SCORE_MIN" 
 if $NORMALISE_STRAND; then
   log "Strand:          from the splice motif"
 else
@@ -368,7 +385,8 @@ for target in "genomic:${GENOME_BOWTIE_INDEX}" "transcriptomic:${TRANSCRIPTOME_I
     --output_dir "$OUTPUT_DIR" \
     --reference_index "${target#*:}" \
     --logic_name "${target%%:*}" \
-    --threads "$THREADS"
+    --threads "$THREADS" \
+    "${SCORE_MIN_ARG[@]}"
 done
 
 ########################################################################## 2. discovery
@@ -376,7 +394,7 @@ log "Stage 2/5: screening mapped reads for putative backsplice junctions"
 
 java "${JAVA_OPTS[@]}" -cp "$CLASSPATH" \
   bio.igm.utils.discovery.ProcessShuffledCoordinates \
-  "$WORKING_DIR" "$MAX_GENOMIC_SPAN" "$SEGMENT_SIZE" "$MIN_GENOMIC_SPAN" "$LEGACY_ARG"
+  "$WORKING_DIR" "$MAX_GENOMIC_SPAN" "$SEGMENT_SIZE" "$MIN_GENOMIC_SPAN" "$LEGACY_ARG" "$REPEAT_ARG"
 
 if [[ ! -s "${WORKING_DIR}/putative_structures.txt" ]]; then
   warn "No putative backsplice junctions were found; nothing further to do"
@@ -411,7 +429,8 @@ for target in "ptes:${WORKING_DIR}/ptes" "canonical:${WORKING_DIR}/canonical"; d
     --output_dir "$OUTPUT_DIR" \
     --reference_index "${target#*:}" \
     --logic_name "${target%%:*}" \
-    --threads "$THREADS"
+    --threads "$THREADS" \
+    "${SCORE_MIN_ARG[@]}"
 done
 
 ########################################################################## 5. filtering
@@ -419,7 +438,7 @@ log "Stage 5/5: filtering potential false positive predictions"
 
 java "${JAVA_OPTS[@]}" -cp "$CLASSPATH" \
   bio.igm.utils.filter.PipelineFilter \
-  "$WORKING_DIR" "$JSPAN" "$PID" "${FILTER_ARGS[@]}" "$LEGACY_ARG"
+  "$WORKING_DIR" "$JSPAN" "$PID" "${FILTER_ARGS[@]}" "$LEGACY_ARG" "$RULES"
 
 ########################################################################## reporting
 if [[ ! -f "${WORKING_DIR}/pf-structures.bed" ]]; then

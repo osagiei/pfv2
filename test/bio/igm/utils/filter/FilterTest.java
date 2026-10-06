@@ -163,9 +163,10 @@ public final class FilterTest {
         Assert.equals("score ranking falls back when AS is absent",
                 Boolean.TRUE, Competition.constructWins(construct, genomicWorse, as));
 
-        Assert.equals("metric follows the legacy flag",
+        // v1 ranks on aligned bases and edit distance; alignment score is the opt-in.
+        Assert.equals("edit distance is the reference metric",
                 Competition.Metric.EDIT_DISTANCE, Competition.metricFor(true));
-        Assert.equals("alignment score is the default metric",
+        Assert.equals("alignment score is available when asked for",
                 Competition.Metric.ALIGNMENT_SCORE, Competition.metricFor(false));
     }
 
@@ -235,19 +236,21 @@ public final class FilterTest {
         perfect.put("p1", new Reads("p1\t0\t" + target + "\t90\t42\t20M\t*\t0\t0\t"
                 + repeat('A', 20) + "\t" + repeat('I', 20) + "\tNM:i:0\tMD:Z:20"));
 
-        MDFilter strict = new MDFilter(perfect, 8, 0.85, dir.getPath());
-        Assert.equals("by default a non-spanning read is rejected however well it matches",
-                0L, strict.getAccepted());
-        Assert.equals("and nothing is accepted without spanning", 0L,
-                strict.getAcceptedWithoutSpanning());
+        // v1 accepts a perfect match to the construct without the junction window test, and
+        // the published method does not require otherwise. Any read that spans the seam
+        // would pass the window anyway, so the exemption only reaches reads that do not.
+        MDFilter reference = new MDFilter(perfect, 8, 0.85, dir.getPath(), true);
+        Assert.equals("a perfect match is accepted under the reference rules",
+                1L, reference.getAccepted());
+        Assert.equals("and counted separately", 1L, reference.getAcceptedWithoutSpanning());
 
-        File legacyDir = Files.createTempDirectory("pfv2-legacy").toFile();
-        legacyDir.deleteOnExit();
-        MDFilter legacy = new MDFilter(perfect, 8, 0.85, legacyDir.getPath(), true);
-        Assert.equals("legacy mode accepts it", 1L, legacy.getAccepted());
-        Assert.equals("and counts it separately", 1L, legacy.getAcceptedWithoutSpanning());
+        File strictDir = Files.createTempDirectory("pfv2-strict").toFile();
+        strictDir.deleteOnExit();
+        MDFilter strict = new MDFilter(perfect, 8, 0.85, strictDir.getPath(), false);
+        Assert.equals("the 2.2 rules reject it for not spanning", 0L, strict.getAccepted());
+        Assert.equals("and count nothing as exempt", 0L, strict.getAcceptedWithoutSpanning());
 
-        List<String> pid = Files.readAllLines(new File(legacyDir, "pf-pid.tsv").toPath(),
+        List<String> pid = Files.readAllLines(new File(dir, "pf-pid.tsv").toPath(),
                 StandardCharsets.UTF_8);
         Assert.equals("undefined identities are written as NA, not null",
                 true, pid.get(1).endsWith("\tNA\tNA"));

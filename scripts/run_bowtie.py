@@ -52,6 +52,13 @@ def parse_args(argv=None):
     parser.add_argument(
         '--program', default='bowtie2',
         help='Bowtie2 executable to use (default: bowtie2)')
+    parser.add_argument(
+        '--score-min', dest='score_min', default=None,
+        help="Bowtie2 --score-min. Left unset by default, as PTESFinder v1 did: the "
+             "published method specifies no realignment threshold and relies on the "
+             "junction span and percent identity filters instead. Releases 2.0.0 to 2.3.0 "
+             "passed C,-15,0, which caps the total penalty at 15 regardless of read length "
+             "and so discards reads before those filters ever see them.")
     return parser.parse_args(argv)
 
 
@@ -77,7 +84,6 @@ def main(argv=None):
     command = [args.program,
                '-p', str(args.threads),
                '--very-sensitive',
-               '--score-min=C,-15,0',
                '--mm',
                # Unaligned records carry no MD, NM or AS tag, so every downstream filter
                # skips them anyway; dropping them here keeps the SAM files far smaller.
@@ -85,6 +91,8 @@ def main(argv=None):
                '-x', args.reference_index,
                '-q', '-U', args.fastq,
                '-S', sam]
+    if args.score_min:
+        command.insert(3, '--score-min=' + args.score_min)
 
     LOG.info('Running: %s', ' '.join(command))
     try:

@@ -41,6 +41,7 @@ public class ProcessShuffledCoordinates {
     private final int minSpan;
     private final int segmentSize;
     private final boolean legacy;
+    private final boolean repeatFilter;
     private final Logger log;
 
     /**
@@ -74,6 +75,19 @@ public class ProcessShuffledCoordinates {
      */
     public ProcessShuffledCoordinates(String _path, int _max_span, int _min_span, int _segment_size,
             boolean _legacy) throws IOException {
+        this(_path, _max_span, _min_span, _segment_size, _legacy, false);
+    }
+
+    /**
+     * @param _repeatFilter discard chimeric records with a repeat longer than one base at
+     *                      the breakpoint. Off by default: PTESFinder's published method
+     *                      describes no such filter and resolves breakpoint ambiguity with
+     *                      the junction span and percent identity filters instead. It was
+     *                      added to this implementation in 2018, after publication.
+     */
+    public ProcessShuffledCoordinates(String _path, int _max_span, int _min_span, int _segment_size,
+            boolean _legacy, boolean _repeatFilter) throws IOException {
+        this.repeatFilter = _repeatFilter;
         this.legacy = _legacy;
         this.path = new File(_path);
         this.log = Logging.forWorkingDir(_path, ProcessShuffledCoordinates.class);
@@ -198,8 +212,11 @@ public class ProcessShuffledCoordinates {
         String oL = f[2];
         String oR = f[5];
 
-        // mono-nucleotide repeats at the junction make the breakpoint ambiguous
-        if (Integer.parseInt(f[7]) > 1 || Integer.parseInt(f[8]) > 1) {
+        // Breakpoint repeats make the junction position ambiguous by the repeat length.
+        // The published method leaves that ambiguity to the junction span and percent
+        // identity filters rather than discarding the candidate, so this is off unless asked
+        // for.
+        if (repeatFilter && (Integer.parseInt(f[7]) > 1 || Integer.parseInt(f[8]) > 1)) {
             return null;
         }
         if (!chrL.equalsIgnoreCase(chrR)) {
@@ -344,17 +361,18 @@ public class ProcessShuffledCoordinates {
 
     private static void usage() {
         System.err.println("Usage: ProcessShuffledCoordinates <working_dir> <max_span> <segment_size> "
-                + "[min_span] [legacy]");
+                + "[min_span] [legacy] [repeat_filter]");
         System.err.println("  working_dir   directory containing star_Chimeric.out.junction and star_SJ.out.tab");
         System.err.println("  max_span      maximum genomic distance between backsplice anchors, in bp");
         System.err.println("  segment_size  length of each construct arm, in bp (read length - overhang)");
         System.err.println("  min_span      minimum genomic distance between anchors, in bp (default "
                 + DEFAULT_MIN_SPAN + ")");
         System.err.println("  legacy        1 to reproduce the canonical motif rule used up to 2.1.0");
+        System.err.println("  repeat_filter 1 to discard breakpoint repeats longer than 1 bp");
     }
 
     public static void main(String[] args) {
-        if (args.length < 3 || args.length > 5) {
+        if (args.length < 3 || args.length > 6) {
             usage();
             System.exit(2);
         }
@@ -362,8 +380,9 @@ public class ProcessShuffledCoordinates {
             int maxSpan = Integer.parseInt(args[1]);
             int segmentSize = Integer.parseInt(args[2]);
             int minSpan = args.length >= 4 ? Integer.parseInt(args[3]) : DEFAULT_MIN_SPAN;
-            boolean legacy = args.length == 5 && !"0".equals(args[4]);
-            new ProcessShuffledCoordinates(args[0], maxSpan, minSpan, segmentSize, legacy);
+            boolean legacy = args.length >= 5 && !"0".equals(args[4]);
+            boolean repeats = args.length == 6 && !"0".equals(args[5]);
+            new ProcessShuffledCoordinates(args[0], maxSpan, minSpan, segmentSize, legacy, repeats);
         } catch (NumberFormatException ex) {
             System.err.println("Numeric argument expected: " + ex.getMessage());
             usage();
