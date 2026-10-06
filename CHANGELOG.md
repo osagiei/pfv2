@@ -1,5 +1,60 @@
 # Changelog
 
+## 2.5.0
+
+### The transcriptome index can now be built from an annotation
+
+The transcriptomic filter is one of the three false-positive filters in Izuogu et al. (2016),
+and `PFv2.sh` has always refused to run without `-t`. But `ops/build_indexes.sh` would only
+build that index from a cDNA FASTA you already had, which left no path from an annotation to a
+usable index. v1 had one: it took a UCSC BED12 annotation and derived the transcript sequences
+itself. That route was lost when STAR replaced the annotation-driven discovery stage.
+
+`ops/build_indexes.sh` now derives the transcript FASTA when no cDNA FASTA is given:
+
+- `--gtf <annotation.gtf>` converts with `gffread -w`. This is the usual route, and it is the
+  same annotation STAR already takes for `--sjdbGTFfile`.
+- `--transcriptome-bed <annotation.bed>` takes a UCSC BED12, as v1 did. v1 split BED12 into
+  per-exon records, pulled each exon stranded, and rejoined them with its own
+  `MergeUCSCExonsToTranscript`, which recovers the exon number from the FASTA header and so
+  accepts only RefSeq or knownGene style ids; `bedtools getfasta -split` performs the same
+  join for any transcript id. Both produce exons concatenated per transcript in transcript
+  orientation, which is what the filter compares against.
+
+Either route refuses to build when the annotation and the genome name their sequences
+differently. `chr17` against `17` would otherwise produce a transcriptome nothing aligns to,
+which does not fail - it silently turns the filter into a no-op and inflates the call set.
+
+`gffread` and `bedtools` are in the image for this. Neither is used by a per-sample run.
+
+### STAR no longer dies partway through stage 1 on a default open-file limit
+
+STAR sorts BAM through one temporary file per bin per thread, 50 bins by default, so `-n 32`
+against the usual 1024 soft limit failed in stage 1 with `could not create output file
+.../_STARtmp/BAMsort/19/47` - a path that exists and is writable, which sends you looking at
+permissions. The limit is now raised at preflight when the hard limit allows, and the run is
+refused up front when it does not, naming the thread count that would fit. Observed on a
+64-core host, where `-n 32` failed and `-n 8` succeeded.
+
+### Bundled tools are visible in a login shell
+
+`docker run ... bash -lc` and an interactive `docker exec` re-read `/etc/profile`, which set
+PATH from scratch and hid `/opt/conda/bin`, so STAR, Bowtie2, samtools, `gffread` and
+`bedtools` were all "command not found" in an image that plainly contains them. The entrypoint
+was unaffected.
+
+### `ptesfinder version` now reports a tool that will not run
+
+A tool present on PATH but dying on execution printed an empty version and exited 0. That is
+what a wrong-architecture binary looks like, and it was invisible. Such a tool is now reported
+as `FAILED TO RUN` and the command exits non-zero, so it can be used as a health check.
+
+### Verified natively on amd64
+
+`image.yaml` now pulls the published manifest on an amd64 runner after push and asserts that
+every bundled tool reports a version. The multi-arch image was previously only exercised on
+aarch64 hardware, with amd64 checked under emulation.
+
 ## 2.4.0
 
 Realigns the filters with the published method and the v1 implementation. Releases 2.2.0 to

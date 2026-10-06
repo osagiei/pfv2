@@ -140,11 +140,27 @@ it from the published genome - an index is tied to the genome format version tha
 so a locally built one can never be the wrong vintage:
 
 ```bash
-bash ops/build_indexes.sh --genome /data/refs/genome.fa --transcriptome /data/refs/transcriptome.cdna.fa --read-length 150 --out /data/refs/indexes --threads 16
+bash ops/build_indexes.sh --genome /data/refs/genome.fa --gtf /data/refs/annotation.gtf --read-length 150 --out /data/refs/indexes --threads 16
 ```
 
 Budget about an hour and 32 GB of RAM for a mammalian STAR index. `--only star` builds just
 that one.
+
+That builds the transcriptome index too, which is not optional: the transcriptomic filter is
+one of the three false-positive filters in the method, and `PFv2.sh` will not run without
+`-t`. The index has to be transcript sequences, not the genome, because the filter asks
+whether a read aligns better to a linear mRNA than to the backsplice construct. Supply them
+whichever way suits what you have:
+
+| Option | Source | How |
+|--------|--------|-----|
+| `--transcriptome cdna.fa` | a cDNA FASTA you already have | used as given |
+| `--gtf annotation.gtf` | GTF or GFF3 | `gffread -w`; the same annotation STAR takes for `--sjdbGTFfile` |
+| `--transcriptome-bed ann.bed` | UCSC BED12 | `bedtools getfasta -split`, the route v1 used |
+
+Both derivations refuse to build if the annotation and the genome name their sequences
+differently. `chr17` against `17` produces a transcriptome that nothing aligns to, and that
+does not fail - it quietly turns the filter off and inflates the call set.
 
 The reference set is published as archives. The STAR index is split into 4 GB parts
 because a single upload that large is rejected by Zenodo's gateway; `fetch-references` rejoins
