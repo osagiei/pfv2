@@ -47,25 +47,42 @@ Revoke at https://zenodo.org/account/settings/applications/tokens/ and put the r
       `linux/amd64` and `linux/arm64`. Verified by an anonymous pull on a host with no Docker
       credentials, and both variants pass `ptesfinder selftest`.
 
-      Re-publish with:
+      Pushed by hand, not by the tag. Until 2.5.0 the image workflow tested the Docker Hub
+      credentials in a job-level `if`, where the `secrets` context does not exist; that makes
+      the whole file invalid, so GitHub reported a zero-second failed run against every push
+      and no tag ever published anything. The credentials are read in a step now.
+
+      Publish with:
 
       ```bash
       docker buildx create --use --name multiarch --driver docker-container
       make image
-      docker buildx imagetools inspect conidiobolus/pfv2:2.4.0
+      docker buildx imagetools inspect conidiobolus/pfv2:<version>
       ```
+
+      The tag does this instead, once `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` are set on
+      the repository. They are not set on `ddxl-osagie/pfv2`, so a tag there publishes
+      nothing and says so in the `skipped` job.
 
 ## Release checklist
 
-- [ ] `make build` - 101 unit checks pass and the jar is repackaged
+- [ ] `make build` - 103 unit checks pass and the jar is repackaged
 - [ ] `make smoke` - stages 2, 3 and 5 against the synthetic dataset
+- [ ] `ptesfinder selftest --aligners` - STAR, Bowtie2 and samtools actually align. Needs
+      native hardware; under QEMU STAR dies on an unsupported instruction, which is why it is
+      not part of the image build
 - [ ] `make e2e` - full run through the real aligners against the committed fixture
 - [ ] Commit the rebuilt `PFv2.jar`; CI fails when its classes do not match `src/`
 - [ ] `CHANGELOG.md` has an entry for the version in `PFv2.sh`
 - [ ] Tag `<version>` (bare semver, matching the existing `2.0.0` tag), which triggers the
       image workflow; a `v`-prefixed tag works too
 - [ ] Set `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` as repository secrets, and
-      `DOCKERHUB_NAMESPACE` as a variable if it is not `conidiobolus`
+      `DOCKERHUB_NAMESPACE` as a variable if it is not `conidiobolus`. Without them the tag
+      publishes nothing; the `skipped` job says so rather than leaving a silent gap
+- [ ] After a tag that publishes, check the `verify-amd64` job. It pulls the published
+      manifest on an amd64 runner and asserts both platforms are present, that every bundled
+      tool reports a version, and that the aligners run. Nothing else exercises amd64 on real
+      hardware
 
 ## Notes for the upstream pull request
 
@@ -82,4 +99,5 @@ Revoke at https://zenodo.org/account/settings/applications/tokens/ and put the r
 
 - `ops/zenodo_upload.sh` creates drafts and never publishes. A published record's files
   cannot be replaced, only superseded by a new version.
-- No workflow pushes an image on a branch build. Only a `v*` tag does.
+- No workflow pushes an image on a branch build. Only a version tag does, bare semver or
+  `v`-prefixed.
