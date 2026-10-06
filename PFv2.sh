@@ -11,7 +11,7 @@ fi
 
 set -euo pipefail
 
-readonly VERSION="2.2.1"
+readonly VERSION="2.3.0"
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 ########################################################################## defaults
@@ -27,7 +27,7 @@ MIN_JAVA_VERSION=15
 CODEBASE="$SCRIPT_DIR"
 PYTHON="${PYTHON:-python3}"
 
-FASTQ_READS=""
+FASTQ_READS=()
 OUTPUT_DIR=""
 SAMPLE_ID=""
 TRANSCRIPTOME_INDEX=""
@@ -78,7 +78,8 @@ Usage:
                      -t <transcriptome_index> -g <genome.fa> -b <genome_index> -l <read_length>
 
 Mandatory:
-        -r  sequence reads in FASTQ format
+        -r  sequence reads in FASTQ format. Repeat the flag, or give a comma separated
+            list, to pool mates; they are always mapped single-end
         -d  working directory
         -i  sample id
         -t  transcriptome reference Bowtie2 index prefix
@@ -176,7 +177,9 @@ Install a newer JDK, or recompile for your JDK with 'bash setup.sh'."
 ########################################################################## arguments
 while getopts ":r:i:d:t:g:b:l:p:j:c:S:C:M:n:m:GTkLVAh" opt; do
   case $opt in
-    r) FASTQ_READS="$OPTARG" ;;
+    # Repeatable, and a comma separated list is accepted too. Every file given is pooled
+    # and mapped single-end: PTESFinder does not use paired-end information at discovery.
+    r) IFS=',' read -r -a _reads <<< "$OPTARG"; FASTQ_READS+=("${_reads[@]}") ;;
     d) OUTPUT_DIR="$OPTARG" ;;
     i) SAMPLE_ID="$OPTARG" ;;
     t) TRANSCRIPTOME_INDEX="$OPTARG" ;;
@@ -205,7 +208,7 @@ done
 
 ########################################################################## validation
 missing=()
-[[ -n "$FASTQ_READS"         ]] || missing+=("-r sequence reads")
+(( ${#FASTQ_READS[@]} > 0 )) || missing+=("-r sequence reads")
 [[ -n "$OUTPUT_DIR"          ]] || missing+=("-d working directory")
 [[ -n "$SAMPLE_ID"           ]] || missing+=("-i sample id")
 [[ -n "$TRANSCRIPTOME_INDEX" ]] || missing+=("-t transcriptome Bowtie2 index")
@@ -268,7 +271,10 @@ require_file "${CODEBASE}/scripts/validate_inputs.py" "validate_inputs.py"
 COMMONS_LANG="$(find "${CODEBASE}/lib" -name 'commons-lang3-*.jar' -not -name '._*' 2>/dev/null | head -1 || true)"
 [[ -n "$COMMONS_LANG" ]] || die "commons-lang3 jar not found in ${CODEBASE}/lib"
 
-require_file "$FASTQ_READS" "FASTQ reads"
+for _f in "${FASTQ_READS[@]}"; do require_file "$_f" "FASTQ reads"; done
+# One string for the aligners: STAR reads it as a single-end set and Bowtie2's -U does the
+# same. Separate arguments would make STAR pair them, which the method forbids.
+READS_JOINED="$(IFS=,; printf '%s' "${FASTQ_READS[*]}")"
 require_file "$GENOME_FASTA" "Genome FASTA"
 require_star_index "$GENOME_STAR_INDEX"
 require_bowtie2_index "$GENOME_BOWTIE_INDEX" "Genome"
@@ -281,7 +287,7 @@ else
   # Contig naming that differs between the genome FASTA and the STAR index produces an
   # empty result many hours later, so it is worth a few seconds up front.
   "$PYTHON" "${CODEBASE}/scripts/validate_inputs.py" \
-    --fastq "$FASTQ_READS" \
+    --fastq "$READS_JOINED" \
     --genome "$GENOME_FASTA" \
     --star-index "$GENOME_STAR_INDEX" \
     --bowtie2-genome "$GENOME_BOWTIE_INDEX" \
@@ -327,6 +333,11 @@ else
 fi
 
 log "Sample:        $SAMPLE_ID"
+if (( ${#FASTQ_READS[@]} > 1 )); then
+  log "Reads:         ${#FASTQ_READS[@]} file(s), pooled and mapped single-end"
+else
+  log "Reads:         ${FASTQ_READS[0]}"
+fi
 log "Working dir:   $WORKING_DIR"
 log "Read length:   $READ_LENGTH (construct arm: $SEGMENT_SIZE bp)"
 log "Backsplice span: ${MIN_GENOMIC_SPAN}-${MAX_GENOMIC_SPAN} bp"
@@ -345,7 +356,7 @@ log "Stage 1/5: mapping reads to the genome with STAR and Bowtie2"
 
 "$PYTHON" "${CODEBASE}/scripts/run_star.py" \
   --sample_id "$SAMPLE_ID" \
-  --fastq "$FASTQ_READS" \
+  --fastq "${FASTQ_READS[@]}" \
   --output_dir "$OUTPUT_DIR" \
   --genome_index "$GENOME_STAR_INDEX" \
   --threads "$THREADS"
@@ -353,7 +364,7 @@ log "Stage 1/5: mapping reads to the genome with STAR and Bowtie2"
 for target in "genomic:${GENOME_BOWTIE_INDEX}" "transcriptomic:${TRANSCRIPTOME_INDEX}"; do
   "$PYTHON" "${CODEBASE}/scripts/run_bowtie.py" \
     --sample_id "$SAMPLE_ID" \
-    --fastq "$FASTQ_READS" \
+    --fastq "$READS_JOINED" \
     --output_dir "$OUTPUT_DIR" \
     --reference_index "${target#*:}" \
     --logic_name "${target%%:*}" \
@@ -396,7 +407,7 @@ log "Stage 4/5: re-mapping reads to the candidate junctions"
 for target in "ptes:${WORKING_DIR}/ptes" "canonical:${WORKING_DIR}/canonical"; do
   "$PYTHON" "${CODEBASE}/scripts/run_bowtie.py" \
     --sample_id "$SAMPLE_ID" \
-    --fastq "$FASTQ_READS" \
+    --fastq "$READS_JOINED" \
     --output_dir "$OUTPUT_DIR" \
     --reference_index "${target#*:}" \
     --logic_name "${target%%:*}" \

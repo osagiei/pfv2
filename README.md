@@ -266,8 +266,25 @@ results table that records only the name cannot be reproduced.
 - Pre-built Bowtie2 transcriptome index
 
 Sequence names in the genome FASTA must match those used to build the STAR index -
-`chr1` and `1` are not interchangeable. Paired-end reads must be pooled into a
-single FASTQ with unique read ids.
+`chr1` and `1` are not interchangeable.
+
+### Paired-end input
+
+PTESFinder maps single-end, at discovery and at every realignment. The method does not use
+paired-end information: without the intervening sequence between mates there is nothing for
+the junction filters to act on, and admitting mate geometry as evidence costs specificity.
+
+Give both mates to `-r` and they are pooled, never paired:
+
+```bash
+ptesfinder run -r reads_1.fq.gz -r reads_2.fq.gz -i SAMPLE -d /results -g genome.fa -S star/ -b idx/genome -t idx/transcriptome -l 150
+```
+
+**Read names must be unique across the pooled set.** Mates normally share a name, with only
+a `/1` or `/2` suffix that aligners discard, so pooling them unchanged gives two records with
+one name. Every filter keys on the read name, so one mate replaces the other and that
+evidence vanishes with no error. Rename before pooling, and `ptesfinder validate` will refuse
+input where names still collide.
 
 ## Running
 

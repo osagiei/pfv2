@@ -43,7 +43,7 @@ Revoke at https://zenodo.org/account/settings/applications/tokens/ and put the r
         completes; the concept DOI then resolves to it and the documented commands need no
         change.
 
-- [x] **Container image published.** `conidiobolus/pfv2:2.2.1` and `:latest`, public,
+- [x] **Container image published.** `conidiobolus/pfv2:2.3.0` and `:latest`, public,
       `linux/amd64` and `linux/arm64`. Verified by an anonymous pull on a host with no Docker
       credentials, and both variants pass `ptesfinder selftest`.
 
@@ -52,7 +52,7 @@ Revoke at https://zenodo.org/account/settings/applications/tokens/ and put the r
       ```bash
       docker buildx create --use --name multiarch --driver docker-container
       make image
-      docker buildx imagetools inspect conidiobolus/pfv2:2.2.1
+      docker buildx imagetools inspect conidiobolus/pfv2:2.3.0
       ```
 
 ## Release checklist

@@ -1,5 +1,32 @@
 # Changelog
 
+## 2.3.0
+
+### Fixed - this changes results for paired-end input
+
+- **Mapping is single-end, always.** `scripts/run_star.py` passed several FASTQ files to
+  STAR as separate `--readFilesIn` arguments, which STAR reads as mates, so anyone invoking
+  it with two files got paired-end discovery. PTESFinder does not use paired-end mapping
+  information: the absence of intervening sequence between mates precludes the filtering the
+  method relies on, and mate geometry as evidence costs specificity. Files are now joined
+  with commas, STAR's single-end pooling form. `PFv2.sh` only ever passed one file, so a run
+  driven through it was already single-end and is unaffected.
+
+### Added
+
+- **`-r` accepts mates directly.** Repeat the flag or give a comma separated list, and the
+  files are pooled and mapped single-end. Previously paired input had to be concatenated by
+  hand, which the README asked for and nothing helped with or checked.
+
+- **Validation refuses colliding read names.** Mates share a name but for a `/1` or `/2`
+  suffix that aligners discard, so pooling them unchanged yields two records with one name.
+  Every filter keys on the read name, so one mate silently replaced the other and its
+  evidence was lost without an error anywhere. `ptesfinder validate` now fails on duplicate
+  names and says why.
+
+- Mixed gzipped and plain FASTQ input is refused rather than passed to STAR, which takes one
+  `--readFilesCommand` for the whole set.
+
 ## 2.2.1
 
 Packaging only. No change to how any junction is called.
