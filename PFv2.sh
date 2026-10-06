@@ -11,7 +11,7 @@ fi
 
 set -euo pipefail
 
-readonly VERSION="2.4.0"
+readonly VERSION="2.5.0"
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 ########################################################################## defaults
@@ -223,7 +223,11 @@ missing=()
 (( ${#FASTQ_READS[@]} > 0 )) || missing+=("-r sequence reads")
 [[ -n "$OUTPUT_DIR"          ]] || missing+=("-d working directory")
 [[ -n "$SAMPLE_ID"           ]] || missing+=("-i sample id")
-[[ -n "$TRANSCRIPTOME_INDEX" ]] || missing+=("-t transcriptome Bowtie2 index")
+# The transcriptomic filter is one of the method's three false-positive filters, so there is
+# no run without it; the message says where an index comes from because that is the option
+# users are least likely to have lying around.
+[[ -n "$TRANSCRIPTOME_INDEX" ]] || missing+=("-t transcriptome Bowtie2 index (fetch one with \
+'ptesfinder fetch-references', or build it with 'ops/build_indexes.sh --gtf <annotation.gtf>')")
 [[ -n "$GENOME_FASTA"        ]] || missing+=("-g genome FASTA")
 [[ -n "$GENOME_BOWTIE_INDEX" ]] || missing+=("-b genome Bowtie2 index")
 [[ -n "$GENOME_STAR_INDEX"   ]] || missing+=("-S STAR genome index")
@@ -273,6 +277,28 @@ check_java_version
 
 "$PYTHON" -c 'import sys; sys.exit(0 if sys.version_info[0] >= 3 else 1)' \
   || die "$PYTHON is not Python 3; set PYTHON=/path/to/python3"
+
+# STAR sorts BAM through one temporary file per bin per thread - 50 bins by default - so a
+# high thread count against the common 1024 soft limit fails partway through stage 1 with
+# "could not create output file .../_STARtmp/BAMsort/19/47", which names a path that exists
+# and is writable. Raised here if the hard limit allows, and refused up front if it does not,
+# because the alternative is a run that dies minutes in for a reason that reads like a
+# permissions problem.
+NOFILE_NEEDED=$(( THREADS * 50 + 100 ))
+NOFILE_SOFT="$(ulimit -Sn 2>/dev/null || echo unlimited)"
+if [[ "$NOFILE_SOFT" != "unlimited" ]] && (( NOFILE_SOFT < NOFILE_NEEDED )); then
+  NOFILE_HARD="$(ulimit -Hn 2>/dev/null || echo unlimited)"
+  if [[ "$NOFILE_HARD" == "unlimited" ]] || (( NOFILE_HARD >= NOFILE_NEEDED )); then
+    ulimit -Sn "$NOFILE_NEEDED" \
+      && log "Raised the open file limit from ${NOFILE_SOFT} to ${NOFILE_NEEDED} for ${THREADS} STAR threads"
+  else
+    die "$(printf '%s\n' \
+      "STAR needs about ${NOFILE_NEEDED} open files for ${THREADS} threads, but this shell" \
+      "allows ${NOFILE_SOFT} and cannot exceed ${NOFILE_HARD}. Either raise the hard limit" \
+      "(ulimit -Hn, or LimitNOFILE= / --ulimit nofile= for a service or container), or run" \
+      "with -n $(( (NOFILE_HARD - 100) / 50 )) threads or fewer.")"
+  fi
+fi
 
 [[ -d "$CODEBASE" ]] || die "-c code directory not found: $CODEBASE"
 require_file "${CODEBASE}/PFv2.jar" "PFv2.jar"

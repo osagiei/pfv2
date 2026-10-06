@@ -6,13 +6,28 @@
 # checks is that stages 2, 3 and 5 agree on coordinates, junction offsets, splice signals
 # and filter outcomes, which is exactly what silently drifts when one is edited alone.
 #
-#   bash test/smoke/run.sh [work_dir]
+# --aligners additionally runs test/smoke/aligners.sh, which does exercise them. It is opt-in
+# because the image build runs its non-native stage under QEMU, where they cannot be expected
+# to work; the published image is checked on native hardware instead.
+#
+#   bash test/smoke/run.sh [work_dir] [--aligners]
 #
 if [ -z "${BASH_VERSION:-}" ]; then exec bash "$0" "$@"; fi
 set -euo pipefail
 
 CODE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-WORK="${1:-$(mktemp -d)}"
+
+ALIGNERS=false
+ARGS=()
+for arg in "$@"; do
+  case "$arg" in
+    --aligners) ALIGNERS=true ;;
+    -h|--help) sed -n '2,16p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) ARGS+=("$arg") ;;
+  esac
+done
+
+WORK="${ARGS[0]:-$(mktemp -d)}"
 PYTHON="${PYTHON:-python3}"
 
 LIB="$(find "${CODE}/lib" -name 'commons-lang3-*.jar' | head -1)"
@@ -99,6 +114,11 @@ java -cp "$CP" bio.igm.utils.filter.PipelineFilter "$W" 8 0.85 1 0 0 0 reference
 check "reference rules accept the perfect match and the canonical-competing read" \
   "read1 read2 read4 read6" \
   "$(cut -f1 "${W}/pf-supporting-reads.tab" | sort | tr '\n' ' ' | sed 's/ $//')"
+
+if $ALIGNERS; then
+  echo ">>> Aligners: STAR, Bowtie2 and samtools on a synthetic reference"
+  bash "${CODE}/test/smoke/aligners.sh" "${WORK}/aligners" || fail=1
+fi
 
 if [ "$fail" -eq 0 ]; then
   echo ">>> SMOKE PASS"

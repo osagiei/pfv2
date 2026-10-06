@@ -3,9 +3,9 @@
 # One image carrying PFv2 and the three tools it shells out to, so a run needs nothing from
 # the host but the reads and a reference.
 #
-#   docker build -t conidiobolus/pfv2:2.4.0 .
-#   docker run --rm conidiobolus/pfv2:2.4.0 --help
-#   docker run --rm conidiobolus/pfv2:2.4.0 selftest
+#   docker build -t conidiobolus/pfv2:2.5.0 .
+#   docker run --rm conidiobolus/pfv2:2.5.0 --help
+#   docker run --rm conidiobolus/pfv2:2.5.0 selftest
 #
 # The entrypoint is the `ptesfinder` CLI, also installed as `pfv2`.
 #
@@ -31,7 +31,7 @@ RUN bash setup.sh
 # ---------------------------------------------------------------- runtime
 FROM mambaorg/micromamba:1.5.8
 
-ARG PFV2_VERSION=2.4.0
+ARG PFV2_VERSION=2.5.0
 
 LABEL org.opencontainers.image.title="pfv2" \
       org.opencontainers.image.description="PTESFinder v2: annotation-free backsplice junction identification from RNA-seq" \
@@ -66,7 +66,11 @@ COPY bin/ptesfinder /usr/local/bin/ptesfinder
 RUN chmod +x /usr/local/bin/ptesfinder ${PFV2_HOME}/PFv2.sh \
  && ln -s ptesfinder /usr/local/bin/pfv2 \
  && ln -s ${PFV2_HOME}/PFv2.sh /usr/local/bin/PFv2.sh \
- && mkdir -p /work && chown $MAMBA_USER:$MAMBA_USER /work
+ && mkdir -p /work && chown $MAMBA_USER:$MAMBA_USER /work \
+ # ENV PATH covers a non-login shell, but a login shell (docker run ... bash -lc, or an
+ # interactive exec) re-reads /etc/profile and sets PATH from scratch, which hides every
+ # bundled tool in an image that plainly contains them.
+ && printf 'PATH="/opt/conda/bin:$PATH"\nexport PATH\n' > /etc/profile.d/00-conda-path.sh
 
 # Non-root, so a bind-mounted output directory does not end up owned by root. Mount reads
 # and references read-only and /work read-write.
@@ -75,6 +79,10 @@ WORKDIR /work
 
 # Exercises stages 2, 3 and 5 against a synthetic dataset at build time, so a broken image
 # fails the build rather than an analysis.
+#
+# Not `selftest --aligners`: a multi-arch build runs its non-native stage under QEMU, where
+# STAR dies on an unsupported instruction. The aligners are checked against the published
+# image on native hardware by the verify-amd64 job instead.
 RUN ptesfinder selftest
 
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/ptesfinder"]

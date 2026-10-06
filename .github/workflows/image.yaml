@@ -17,12 +17,39 @@ permissions:
   contents: read
 
 jobs:
+  # The `secrets` context is not available in a job-level `if`, so the credentials cannot be
+  # tested there. Doing it anyway makes the whole file invalid, and GitHub then reports a
+  # zero-second failed run against every push while no tag ever publishes anything. They are
+  # read in a step instead, where the context does exist, and the result is passed on as an
+  # output.
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.check.outputs.publish }}
+    steps:
+      - id: check
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ -n "$DOCKERHUB_USERNAME" ] && [ -n "$DOCKERHUB_TOKEN" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
   # Publishing is optional. Without Docker Hub credentials the job is skipped rather than
   # failed: a release should not be marked red because an optional step has no secrets, and
   # an image can always be pushed by hand with `make image`.
   publish:
-    if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+    needs: gate
+    if: needs.gate.outputs.publish == 'true'
     runs-on: ubuntu-latest
+    outputs:
+      # Only the version. An output whose value contains a secret is redacted on the way out,
+      # and the namespace is the same string as DOCKERHUB_USERNAME, so an image reference
+      # built here arrives in the next job as an empty string.
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -60,9 +87,67 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  # The published amd64 image has never been run on an amd64 machine: the build runs its
+  # non-native stage under QEMU, and the maintainer's hardware is arm64. Under emulation STAR
+  # dies with "Illegal instruction" while Bowtie2 and samtools are fine, so emulation cannot
+  # distinguish a broken amd64 build from a QEMU limitation. GitHub's runners are amd64, so
+  # this answers the question natively, after push, against the artefact users will pull.
+  verify-amd64:
+    needs: publish
+    runs-on: ubuntu-latest
+    # Assembled here rather than passed in as a job output, for the redaction reason above.
+    env:
+      IMAGE: ${{ vars.DOCKERHUB_NAMESPACE || secrets.DOCKERHUB_USERNAME }}/pfv2:${{ needs.publish.outputs.version }}
+    steps:
+      # Logged in to pull as an authenticated user; anonymous pulls on shared runners hit
+      # Docker Hub's rate limit often enough to turn this job into a coin toss.
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Check the manifest offers both architectures
+        run: |
+          docker buildx imagetools inspect "$IMAGE" > manifest.txt
+          cat manifest.txt
+          for want in linux/amd64 linux/arm64; do
+            grep -q "$want" manifest.txt || {
+              echo "::error title=Missing platform::the published image does not offer $want"
+              exit 1
+            }
+          done
+
+      - name: Pull the amd64 image and confirm that is what ran
+        run: |
+          docker pull --platform linux/amd64 "$IMAGE"
+          arch=$(docker run --rm --platform linux/amd64 "$IMAGE" bash -c 'uname -m')
+          echo "container reports: $arch"
+          [ "$arch" = "x86_64" ] || {
+            echo "::error title=Wrong architecture::expected x86_64, got $arch"
+            exit 1
+          }
+
+      # Exits non-zero if a tool is absent, or present and unable to report a version. The
+      # second case is the one that was silent before: a binary that dies on its first
+      # instruction printed an empty string and exited 0.
+      - name: Every bundled tool reports a version
+        run: |
+          docker run --rm --platform linux/amd64 "$IMAGE" version
+
+      - name: The Java stages pass
+        run: |
+          docker run --rm --platform linux/amd64 "$IMAGE" selftest
+
+      # The step the build itself cannot run. It is what catches an aligner that reports a
+      # version and then cannot align.
+      - name: STAR, Bowtie2 and samtools actually align
+        run: |
+          docker run --rm --platform linux/amd64 "$IMAGE" selftest --aligners
+
   # Says plainly why nothing was published, instead of leaving a silently absent job.
   skipped:
-    if: ${{ secrets.DOCKERHUB_USERNAME == '' || secrets.DOCKERHUB_TOKEN == '' }}
+    needs: gate
+    if: needs.gate.outputs.publish == 'false'
     runs-on: ubuntu-latest
     steps:
       - name: Explain why no image was published

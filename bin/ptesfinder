@@ -59,7 +59,8 @@ Commands:
         run                identify backsplice junctions in one sample
         validate           check reads and references without running anything
         fetch-references   download a prebuilt reference set from a Zenodo record
-        selftest           run the end-to-end smoke test
+        selftest           run the end-to-end smoke test (--aligners also runs STAR,
+                           Bowtie2 and samtools, which the default does not)
         version            print the PFv2 and aligner versions
         help               show this message
 
@@ -69,21 +70,34 @@ and \`${PROGRAM} fetch-references --help\` for those commands.
 USAGE
 }
 
+# Reports each tool's version, distinguishing "absent" from "present but will not run".
+# The second case is what a wrong-architecture or SIMD-incompatible binary looks like: the
+# executable is on PATH and dies on its first instruction, which an empty version string
+# would hide. Returns non-zero if any tool cannot report, so CI can gate on it.
 versions() {
-  # Names the release explicitly: "PTESFinder" without a version does not identify a tool.
-  printf 'PTESFinder v2 (PFv2) %s\n' "$(grep -m1 '^readonly VERSION=' "${PFV2_HOME}/PFv2.sh" | cut -d'"' -f2)"
-  for tool in STAR bowtie2 samtools java; do
-    if command -v "$tool" >/dev/null 2>&1; then
-      case "$tool" in
-        STAR)     printf 'STAR                 %s\n' "$(STAR --version 2>/dev/null)" ;;
-        bowtie2)  printf 'bowtie2              %s\n' "$(bowtie2 --version 2>/dev/null | head -1 | awk '{print $NF}')" ;;
-        samtools) printf 'samtools             %s\n' "$(samtools --version 2>/dev/null | head -1 | awk '{print $NF}')" ;;
-        java)     printf 'java                 %s\n' "$(java -version 2>&1 | head -1 | cut -d'"' -f2)" ;;
-      esac
-    else
-      printf '%-20s not installed\n' "$tool"
-    fi
-  done
+    local failed=0
+    printf 'PTESFinder v2 (PFv2) %s\n' "$(grep -m1 '^readonly VERSION=' "${PFV2_HOME}/PFv2.sh" | cut -d'"' -f2)"
+    for tool in STAR bowtie2 samtools java; do
+        if ! command -v "$tool" >/dev/null 2>&1; then
+            printf '%-20s not installed\n' "$tool"
+            failed=1
+            continue
+        fi
+        local out=""
+        case "$tool" in
+            STAR)     out="$(STAR --version 2>/dev/null)" ;;
+            bowtie2)  out="$(bowtie2 --version 2>/dev/null | head -1 | awk '{print $NF}')" ;;
+            samtools) out="$(samtools --version 2>/dev/null | head -1 | awk '{print $NF}')" ;;
+            java)     out="$(java -version 2>&1 | head -1 | cut -d'"' -f2)" ;;
+        esac
+        if [ -z "$out" ]; then
+            printf '%-20s FAILED TO RUN (installed, but exited without a version)\n' "$tool"
+            failed=1
+        else
+            printf '%-20s %s\n' "$tool" "$out"
+        fi
+    done
+    return "$failed"
 }
 
 PYTHON="${PYTHON:-python3}"
@@ -113,6 +127,7 @@ case "${1:-}" in
     exec bash "${PFV2_HOME}/test/smoke/run.sh" "$@"
     ;;
   version|--version)
+    # Non-zero when a tool cannot report, so `ptesfinder version` doubles as a health check.
     versions
     ;;
   bash|sh)
