@@ -11,7 +11,7 @@ fi
 
 set -euo pipefail
 
-readonly VERSION="2.2.1"
+readonly VERSION="2.4.0"
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 ########################################################################## defaults
@@ -27,7 +27,7 @@ MIN_JAVA_VERSION=15
 CODEBASE="$SCRIPT_DIR"
 PYTHON="${PYTHON:-python3}"
 
-FASTQ_READS=""
+FASTQ_READS=()
 OUTPUT_DIR=""
 SAMPLE_ID=""
 TRANSCRIPTOME_INDEX=""
@@ -41,6 +41,9 @@ TRANSCRIPTOMIC_ONLY=false
 KEEP_INTERMEDIATES=false
 LEGACY=false
 SKIP_VALIDATION=false
+REPEAT_FILTER=false
+RULES=reference
+SCORE_MIN=
 NORMALISE_STRAND=true
 
 ########################################################################## helpers
@@ -78,7 +81,8 @@ Usage:
                      -t <transcriptome_index> -g <genome.fa> -b <genome_index> -l <read_length>
 
 Mandatory:
-        -r  sequence reads in FASTQ format
+        -r  sequence reads in FASTQ format. Repeat the flag, or give a comma separated
+            list, to pool mates; they are always mapped single-end
         -d  working directory
         -i  sample id
         -t  transcriptome reference Bowtie2 index prefix
@@ -99,6 +103,12 @@ Optional:
         -T  run the transcriptomic filter only, skipping the genomic comparison
         -k  keep intermediate SAM/FASTA/index files instead of deleting them
         -L  reproduce the filter semantics of releases up to 2.1.0 (see CHANGELOG)
+        -R  discard chimeric records with a breakpoint repeat longer than 1 bp. Off by
+            default: the published method leaves that ambiguity to -j and -p
+        -X  apply the stricter 2.2-to-2.3 filter set: require spanning, rank on alignment
+            score, and let canonical junctions compete for reads
+        -Q  Bowtie2 --score-min for every realignment, e.g. C,-15,0. Unset by default, as
+            PTESFinder v1 had it
         -V  skip input and reference validation
         -A  report the aligned strand STAR assigned instead of the strand implied by
             the splice motif; for reproducing pre-2.2.0 output only, see CHANGELOG
@@ -174,9 +184,11 @@ Install a newer JDK, or recompile for your JDK with 'bash setup.sh'."
 }
 
 ########################################################################## arguments
-while getopts ":r:i:d:t:g:b:l:p:j:c:S:C:M:n:m:GTkLVAh" opt; do
+while getopts ":r:i:d:t:g:b:l:p:j:c:S:C:M:n:m:Q:GTkLVARXh" opt; do
   case $opt in
-    r) FASTQ_READS="$OPTARG" ;;
+    # Repeatable, and a comma separated list is accepted too. Every file given is pooled
+    # and mapped single-end: PTESFinder does not use paired-end information at discovery.
+    r) IFS=',' read -r -a _reads <<< "$OPTARG"; FASTQ_READS+=("${_reads[@]}") ;;
     d) OUTPUT_DIR="$OPTARG" ;;
     i) SAMPLE_ID="$OPTARG" ;;
     t) TRANSCRIPTOME_INDEX="$OPTARG" ;;
@@ -195,6 +207,9 @@ while getopts ":r:i:d:t:g:b:l:p:j:c:S:C:M:n:m:GTkLVAh" opt; do
     T) TRANSCRIPTOMIC_ONLY=true ;;
     k) KEEP_INTERMEDIATES=true ;;
     L) LEGACY=true ;;
+    R) REPEAT_FILTER=true ;;
+    X) RULES=strict_2_2 ;;
+    Q) SCORE_MIN="$OPTARG" ;;
     V) SKIP_VALIDATION=true ;;
     A) NORMALISE_STRAND=false ;;
     h) usage; exit 0 ;;
@@ -205,7 +220,7 @@ done
 
 ########################################################################## validation
 missing=()
-[[ -n "$FASTQ_READS"         ]] || missing+=("-r sequence reads")
+(( ${#FASTQ_READS[@]} > 0 )) || missing+=("-r sequence reads")
 [[ -n "$OUTPUT_DIR"          ]] || missing+=("-d working directory")
 [[ -n "$SAMPLE_ID"           ]] || missing+=("-i sample id")
 [[ -n "$TRANSCRIPTOME_INDEX" ]] || missing+=("-t transcriptome Bowtie2 index")
@@ -268,7 +283,10 @@ require_file "${CODEBASE}/scripts/validate_inputs.py" "validate_inputs.py"
 COMMONS_LANG="$(find "${CODEBASE}/lib" -name 'commons-lang3-*.jar' -not -name '._*' 2>/dev/null | head -1 || true)"
 [[ -n "$COMMONS_LANG" ]] || die "commons-lang3 jar not found in ${CODEBASE}/lib"
 
-require_file "$FASTQ_READS" "FASTQ reads"
+for _f in "${FASTQ_READS[@]}"; do require_file "$_f" "FASTQ reads"; done
+# One string for the aligners: STAR reads it as a single-end set and Bowtie2's -U does the
+# same. Separate arguments would make STAR pair them, which the method forbids.
+READS_JOINED="$(IFS=,; printf '%s' "${FASTQ_READS[*]}")"
 require_file "$GENOME_FASTA" "Genome FASTA"
 require_star_index "$GENOME_STAR_INDEX"
 require_bowtie2_index "$GENOME_BOWTIE_INDEX" "Genome"
@@ -281,7 +299,7 @@ else
   # Contig naming that differs between the genome FASTA and the STAR index produces an
   # empty result many hours later, so it is worth a few seconds up front.
   "$PYTHON" "${CODEBASE}/scripts/validate_inputs.py" \
-    --fastq "$FASTQ_READS" \
+    --fastq "$READS_JOINED" \
     --genome "$GENOME_FASTA" \
     --star-index "$GENOME_STAR_INDEX" \
     --bowtie2-genome "$GENOME_BOWTIE_INDEX" \
@@ -318,6 +336,9 @@ fi
 # Legacy mode reproduces pre-2.2.0 output, which reported the aligned strand.
 $LEGACY && NORMALISE_STRAND=false
 if $NORMALISE_STRAND; then NORMALISE_ARG=1; else NORMALISE_ARG=0; fi
+if $REPEAT_FILTER; then REPEAT_ARG=1; else REPEAT_ARG=0; fi
+SCORE_MIN_ARG=()
+[[ -n "$SCORE_MIN" ]] && SCORE_MIN_ARG=(--score-min "$SCORE_MIN")
 
 if $LEGACY; then
   LEGACY_ARG=1
@@ -327,11 +348,18 @@ else
 fi
 
 log "Sample:        $SAMPLE_ID"
+if (( ${#FASTQ_READS[@]} > 1 )); then
+  log "Reads:         ${#FASTQ_READS[@]} file(s), pooled and mapped single-end"
+else
+  log "Reads:         ${FASTQ_READS[0]}"
+fi
 log "Working dir:   $WORKING_DIR"
 log "Read length:   $READ_LENGTH (construct arm: $SEGMENT_SIZE bp)"
 log "Backsplice span: ${MIN_GENOMIC_SPAN}-${MAX_GENOMIC_SPAN} bp"
 log "Junction span:   $JSPAN, percent identity: $PID"
 log "Filters:         $FILTER_DESC"
+log "Rules:           $RULES$($REPEAT_FILTER && printf ', breakpoint repeat filter on')"
+[[ -n "$SCORE_MIN" ]] && log "Bowtie2 score:   --score-min=$SCORE_MIN" 
 if $NORMALISE_STRAND; then
   log "Strand:          from the splice motif"
 else
@@ -345,7 +373,7 @@ log "Stage 1/5: mapping reads to the genome with STAR and Bowtie2"
 
 "$PYTHON" "${CODEBASE}/scripts/run_star.py" \
   --sample_id "$SAMPLE_ID" \
-  --fastq "$FASTQ_READS" \
+  --fastq "${FASTQ_READS[@]}" \
   --output_dir "$OUTPUT_DIR" \
   --genome_index "$GENOME_STAR_INDEX" \
   --threads "$THREADS"
@@ -353,11 +381,12 @@ log "Stage 1/5: mapping reads to the genome with STAR and Bowtie2"
 for target in "genomic:${GENOME_BOWTIE_INDEX}" "transcriptomic:${TRANSCRIPTOME_INDEX}"; do
   "$PYTHON" "${CODEBASE}/scripts/run_bowtie.py" \
     --sample_id "$SAMPLE_ID" \
-    --fastq "$FASTQ_READS" \
+    --fastq "$READS_JOINED" \
     --output_dir "$OUTPUT_DIR" \
     --reference_index "${target#*:}" \
     --logic_name "${target%%:*}" \
-    --threads "$THREADS"
+    --threads "$THREADS" \
+    "${SCORE_MIN_ARG[@]}"
 done
 
 ########################################################################## 2. discovery
@@ -365,7 +394,7 @@ log "Stage 2/5: screening mapped reads for putative backsplice junctions"
 
 java "${JAVA_OPTS[@]}" -cp "$CLASSPATH" \
   bio.igm.utils.discovery.ProcessShuffledCoordinates \
-  "$WORKING_DIR" "$MAX_GENOMIC_SPAN" "$SEGMENT_SIZE" "$MIN_GENOMIC_SPAN" "$LEGACY_ARG"
+  "$WORKING_DIR" "$MAX_GENOMIC_SPAN" "$SEGMENT_SIZE" "$MIN_GENOMIC_SPAN" "$LEGACY_ARG" "$REPEAT_ARG"
 
 if [[ ! -s "${WORKING_DIR}/putative_structures.txt" ]]; then
   warn "No putative backsplice junctions were found; nothing further to do"
@@ -396,11 +425,12 @@ log "Stage 4/5: re-mapping reads to the candidate junctions"
 for target in "ptes:${WORKING_DIR}/ptes" "canonical:${WORKING_DIR}/canonical"; do
   "$PYTHON" "${CODEBASE}/scripts/run_bowtie.py" \
     --sample_id "$SAMPLE_ID" \
-    --fastq "$FASTQ_READS" \
+    --fastq "$READS_JOINED" \
     --output_dir "$OUTPUT_DIR" \
     --reference_index "${target#*:}" \
     --logic_name "${target%%:*}" \
-    --threads "$THREADS"
+    --threads "$THREADS" \
+    "${SCORE_MIN_ARG[@]}"
 done
 
 ########################################################################## 5. filtering
@@ -408,7 +438,7 @@ log "Stage 5/5: filtering potential false positive predictions"
 
 java "${JAVA_OPTS[@]}" -cp "$CLASSPATH" \
   bio.igm.utils.filter.PipelineFilter \
-  "$WORKING_DIR" "$JSPAN" "$PID" "${FILTER_ARGS[@]}" "$LEGACY_ARG"
+  "$WORKING_DIR" "$JSPAN" "$PID" "${FILTER_ARGS[@]}" "$LEGACY_ARG" "$RULES"
 
 ########################################################################## reporting
 if [[ ! -f "${WORKING_DIR}/pf-structures.bed" ]]; then

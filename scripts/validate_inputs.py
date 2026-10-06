@@ -84,9 +84,23 @@ def readable_file(path: str, label: str, report: Report) -> bool:
     return True
 
 
+def read_name(header: str) -> str:
+    """The read name as an aligner records it: the first token, minus any /1 or /2."""
+    name = header[1:].split()[0] if len(header) > 1 else ""
+    return name[:-2] if name.endswith(("/1", "/2")) else name
+
+
 def check_fastq(paths: list[str], declared_length: int | None, report: Report) -> None:
-    """Sanity-check FASTQ structure and compare the read length against --read-length."""
+    """Sanity-check FASTQ structure, read length, and the uniqueness of read names.
+
+    Read names matter more here than they look. PTESFinder maps single-end, so paired
+    input is pooled, and every filter downstream keys its alignments on the read name. If
+    mates still share a name after pooling, one silently replaces the other and half the
+    evidence disappears with no error anywhere.
+    """
     lengths: Counter[int] = Counter()
+    names: set[str] = set()
+    duplicates: Counter[str] = Counter()
     total = 0
 
     for path in paths:
@@ -104,6 +118,12 @@ def check_fastq(paths: list[str], declared_length: int | None, report: Report) -
                     if position == 2 and not line.startswith("+"):
                         report.error(f"{path}: record {index // 4 + 1} has no '+' separator")
                         break
+                    if position == 0:
+                        name = read_name(line.rstrip("\n"))
+                        if name in names:
+                            duplicates[name] += 1
+                        else:
+                            names.add(name)
                     if position == 1:
                         lengths[len(line.rstrip("\n"))] += 1
                         total += 1
@@ -126,6 +146,19 @@ def check_fastq(paths: list[str], declared_length: int | None, report: Report) -
         if count / total < 0.5:
             report.warn(f"read lengths are highly variable ({len(lengths)} distinct in "
                         f"{total} reads); PFv2 sizes its constructs from one length")
+
+    if duplicates:
+        shown = ", ".join(sorted(duplicates)[:3])
+        if len(paths) > 1:
+            report.error(
+                f"{sum(duplicates.values())} duplicate read name(s) across the pooled input "
+                f"(e.g. {shown}). Mates must be renamed before pooling: PTESFinder maps "
+                "single-end and every filter keys on the read name, so a repeated name "
+                "makes one mate overwrite the other and that evidence is lost silently.")
+        else:
+            report.error(
+                f"{sum(duplicates.values())} duplicate read name(s) in {paths[0]} "
+                f"(e.g. {shown}); alignments keyed on the read name would collide.")
 
     if declared_length is not None and declared_length != modal:
         # The construct arm is derived from this number, so a wrong value silently changes

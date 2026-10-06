@@ -5,6 +5,16 @@ Description: Maps sequenced reads to the genome with STAR, with chimeric
              detection enabled so that backsplice candidates are reported in
              Chimeric.out.junction.
 
+             Mapping is single-end, always. PTESFinder does not use paired-end mapping
+             information at discovery: the absence of intervening sequence between mates
+             precludes the filtering the method relies on, and admitting mate geometry as
+             evidence costs specificity. Mates are therefore pooled and each read is
+             nominated on its own.
+
+             Several FASTQ files are joined with commas, which is STAR's single-end
+             pooling form. Passing them as separate --readFilesIn arguments would make
+             STAR treat them as mates, which is the thing this must not do.
+
              For STAR-specific parameter details, see:
              https://github.com/alexdobin/STAR/blob/master/doc/STARmanual.pdf
 
@@ -62,7 +72,8 @@ def parse_args(argv=None):
         help='Genome FASTA; required only with --build_genome_index')
     parser.add_argument(
         '--fastq', nargs='+',
-        help='FASTQ input. Format: fastq1 [fastq2]')
+        help='FASTQ input. Several files are pooled and mapped single-end, never paired; '
+             'they must already carry unique read ids')
     parser.add_argument(
         '--prefix', default='star',
         help='Prefix for output file names (default: star)')
@@ -126,11 +137,15 @@ def map_reads(args):
     sample_dir = os.path.join(args.output_dir, args.sample_id)
     os.makedirs(sample_dir, exist_ok=True)
 
+    # Comma-joined, not space-separated: STAR reads "a,b" as one single-end set and
+    # "a b" as two mates. The method requires the former.
+    reads = ','.join(str(f) for f in args.fastq)
+
     command = [args.program,
                '--runThreadN', str(args.threads),
                '--genomeDir', args.genome_index,
                '--genomeLoad', args.genomeLoad,
-               '--readFilesIn'] + list(args.fastq) + [
+               '--readFilesIn', reads,
                '--alignIntronMax', str(args.alignIntronMax),
                '--outFilterMultimapNmax', str(args.outFilterMultimapNmax),
                '--outFilterMismatchNmax', str(args.outFilterMismatchNmax),
@@ -144,7 +159,11 @@ def map_reads(args):
                # relying on the STAR default here breaks across releases.
                '--chimOutType', 'Junctions']
 
-    if args.fastq[0].endswith('.gz'):
+    gzipped = [f for f in args.fastq if str(f).endswith('.gz')]
+    if gzipped and len(gzipped) != len(args.fastq):
+        fail('mixed gzipped and plain FASTQ input; STAR takes one --readFilesCommand for '
+             'the whole set, so compress or decompress them consistently')
+    if gzipped:
         command += ['--readFilesCommand', 'zcat']
     command += list(args.extra)
 

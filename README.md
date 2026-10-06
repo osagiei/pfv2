@@ -266,8 +266,25 @@ results table that records only the name cannot be reproduced.
 - Pre-built Bowtie2 transcriptome index
 
 Sequence names in the genome FASTA must match those used to build the STAR index -
-`chr1` and `1` are not interchangeable. Paired-end reads must be pooled into a
-single FASTQ with unique read ids.
+`chr1` and `1` are not interchangeable.
+
+### Paired-end input
+
+PTESFinder maps single-end, at discovery and at every realignment. The method does not use
+paired-end information: without the intervening sequence between mates there is nothing for
+the junction filters to act on, and admitting mate geometry as evidence costs specificity.
+
+Give both mates to `-r` and they are pooled, never paired:
+
+```bash
+ptesfinder run -r reads_1.fq.gz -r reads_2.fq.gz -i SAMPLE -d /results -g genome.fa -S star/ -b idx/genome -t idx/transcriptome -l 150
+```
+
+**Read names must be unique across the pooled set.** Mates normally share a name, with only
+a `/1` or `/2` suffix that aligners discard, so pooling them unchanged gives two records with
+one name. Every filter keys on the read name, so one mate replaces the other and that
+evidence vanishes with no error. Rename before pooling, and `ptesfinder validate` will refuse
+input where names still collide.
 
 ## Running
 
@@ -310,9 +327,25 @@ script, so it only needs passing when the code lives somewhere else.
 | `-T` | off | run the transcriptomic filter only |
 | `-k` | off | keep intermediate SAM/FASTA/index files |
 | `-L` | off | reproduce the filter semantics of releases up to 2.1.0 |
+| `-R` | off | discard chimeric records with a breakpoint repeat longer than 1 bp |
+| `-X` | off | apply the stricter 2.2-to-2.3 filter set |
+| `-Q` | unset | Bowtie2 `--score-min` for every realignment, e.g. `C,-15,0` |
 | `-A` | off | report STAR's aligned strand instead of the motif-derived one |
 | `-V` | off | skip input and reference validation |
 | `-h` | | show usage |
+
+### Filter rules
+
+The filters are v1's, as specified in the paper. The only intended difference between v1 and
+v2 is STAR in place of anchor mapping at discovery.
+
+By default a perfect match to a construct is accepted without the junction window test,
+competing alignments are ranked on aligned bases and edit distance, canonical constructs
+serve only as the normalisation denominator, no breakpoint repeat filter is applied, and
+realignment uses Bowtie2's default score threshold.
+
+Releases 2.2.0 to 2.3.0 tightened each of those. `-X` restores that filter set, `-R` the
+repeat filter, and `-Q C,-15,0` the score threshold those releases used.
 
 ### The strand column
 

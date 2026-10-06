@@ -36,11 +36,24 @@ public class PipelineFilter {
 
     private static Logger LOG;
 
+    /**
+     * Which filter rules apply.
+     *
+     * The published method and the v1 implementation define these, and REFERENCE follows
+     * them: a read matching a construct perfectly is accepted without the junction window
+     * test, alignments are ranked on aligned bases and edit distance, and the canonical
+     * constructs are built for normalisation only rather than competing for reads.
+     * STRICT_2_2 is the stricter set this implementation used in 2.2.0 to 2.3.0, kept so
+     * those runs can be reproduced.
+     */
+    public enum Rules { REFERENCE, STRICT_2_2 }
+
     private final File path;
     private final int jspan;
     private final double pid;
     private final Mode mode;
     private final boolean legacy;
+    private final Rules rules;
 
     /**
      * @param _path          working directory
@@ -92,6 +105,15 @@ public class PipelineFilter {
      */
     public PipelineFilter(String _path, int _jspan, double _pid, Mode _mode, boolean _legacy)
             throws IOException {
+        this(_path, _jspan, _pid, _mode, _legacy, Rules.REFERENCE);
+    }
+
+    /**
+     * @param _rules which filter rules apply; see {@link Rules}
+     */
+    public PipelineFilter(String _path, int _jspan, double _pid, Mode _mode, boolean _legacy,
+            Rules _rules) throws IOException {
+        this.rules = _rules;
         this.path = new File(_path);
         this.jspan = _jspan;
         this.pid = _pid;
@@ -114,7 +136,8 @@ public class PipelineFilter {
         LOG = Logging.forWorkingDir(_path, PipelineFilter.class);
         LOG.info("Filtering construct alignments. Mode: " + mode + ", PID: " + pid
                 + ", junction span: " + jspan
-                + ", ranking: " + Competition.metricFor(legacy)
+                + ", rules: " + rules
+                + ", ranking: " + Competition.metricFor(legacy || rules == Rules.REFERENCE)
                 + (legacy ? ", LEGACY semantics" : ""));
         if (legacy) {
             LOG.warning("Legacy mode reproduces the filter semantics of releases up to 2.1.0: "
@@ -127,14 +150,20 @@ public class PipelineFilter {
         // A read that spans a real forward splice junction is a linear read. The genomic
         // filter cannot see this, because such a read does not align contiguously to the
         // genome at all, so the canonical constructs have to compete directly.
-        if (!legacy && new File(path, "canonical.sam").isFile()) {
+        // Canonical constructs exist in v1 to supply the normalisation denominator, not to
+        // compete for reads; no such comparison appears in the published method. It is
+        // applied only under the stricter rule set.
+        if (rules == Rules.STRICT_2_2 && !legacy && new File(path, "canonical.sam").isFile()) {
             processed = new FilterCanonicalHits(processed, path.getPath(), jspan, pid,
                     Competition.metricFor(legacy)).getReads();
         }
 
         LOG.info(processed.size() + " read(s) entering the junction span and percent identity filters");
 
-        new MDFilter(processed, jspan, pid, path.getPath(), legacy);
+        // REFERENCE keeps v1's exemption: a perfect match to the construct is accepted
+        // without the junction window test, which it would pass anyway for any read that
+        // spans the seam.
+        new MDFilter(processed, jspan, pid, path.getPath(), legacy || rules == Rules.REFERENCE);
         processed.clear();
 
         LOG.info("Processing reads mapped to the flanking canonical junctions");
@@ -173,7 +202,7 @@ public class PipelineFilter {
     }
 
     private Map<String, Reads> applyReferenceFilters() throws IOException {
-        Competition.Metric metric = Competition.metricFor(legacy);
+        Competition.Metric metric = Competition.metricFor(legacy || rules == Rules.REFERENCE);
         switch (mode) {
             case BOTH:
                 new FilterGenomicHits(path.getPath(), metric);
@@ -234,7 +263,7 @@ public class PipelineFilter {
 
     private static void usage() {
         System.err.println("Usage: PipelineFilter <working_dir> <junction_span> <pid> "
-                + "<all_filters> <genomic_only> <transcriptomic_only> [legacy]");
+                + "<all_filters> <genomic_only> <transcriptomic_only> [legacy] [rules]");
         System.err.println("  working_dir          directory holding ptes.sam, genomic.sam, "
                 + "transcriptomic.sam and canonical.sam");
         System.err.println("  junction_span        minimum junction span in bp, even integer (e.g. 8)");
@@ -243,10 +272,11 @@ public class PipelineFilter {
         System.err.println("  genomic_only         1 to compare against the genome only");
         System.err.println("  transcriptomic_only  1 to compare against the transcriptome only");
         System.err.println("  legacy               1 to reproduce the filter semantics of releases up to 2.1.0");
+        System.err.println("  rules                reference (default, the published method) or strict_2_2");
     }
 
     public static void main(String[] args) {
-        if (args.length < 6 || args.length > 7) {
+        if (args.length < 6 || args.length > 8) {
             usage();
             System.exit(2);
         }
@@ -257,9 +287,12 @@ public class PipelineFilter {
             boolean allFilters = !"0".equals(args[3]);
             boolean genomic = !"0".equals(args[4]);
             boolean transcriptomic = !"0".equals(args[5]);
-            boolean legacy = args.length == 7 && !"0".equals(args[6]);
+            boolean legacy = args.length >= 7 && !"0".equals(args[6]);
+            Rules rules = args.length == 8 && "strict_2_2".equalsIgnoreCase(args[7])
+                    ? Rules.STRICT_2_2 : Rules.REFERENCE;
 
-            new PipelineFilter(path, jspan, pid, allFilters, genomic, transcriptomic, legacy);
+            new PipelineFilter(path, jspan, pid,
+                    resolveMode(allFilters, genomic, transcriptomic), legacy, rules);
         } catch (NumberFormatException ex) {
             System.err.println("Numeric argument expected: " + ex.getMessage());
             usage();
