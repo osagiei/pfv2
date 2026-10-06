@@ -46,8 +46,10 @@ jobs:
     if: needs.gate.outputs.publish == 'true'
     runs-on: ubuntu-latest
     outputs:
+      # Only the version. An output whose value contains a secret is redacted on the way out,
+      # and the namespace is the same string as DOCKERHUB_USERNAME, so an image reference
+      # built here arrives in the next job as an empty string.
       version: ${{ steps.version.outputs.version }}
-      image: ${{ steps.version.outputs.image }}
     steps:
       - uses: actions/checkout@v4
 
@@ -61,7 +63,6 @@ jobs:
           # A v-prefixed tag still produces an unprefixed image tag.
           version="${version#v}"
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "image=${{ vars.DOCKERHUB_NAMESPACE || 'conidiobolus' }}/pfv2:$version" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
@@ -94,6 +95,9 @@ jobs:
   verify-amd64:
     needs: publish
     runs-on: ubuntu-latest
+    # Assembled here rather than passed in as a job output, for the redaction reason above.
+    env:
+      IMAGE: ${{ vars.DOCKERHUB_NAMESPACE || secrets.DOCKERHUB_USERNAME }}/pfv2:${{ needs.publish.outputs.version }}
     steps:
       # Logged in to pull as an authenticated user; anonymous pulls on shared runners hit
       # Docker Hub's rate limit often enough to turn this job into a coin toss.
@@ -104,21 +108,19 @@ jobs:
 
       - name: Check the manifest offers both architectures
         run: |
-          image='${{ needs.publish.outputs.image }}'
-          docker buildx imagetools inspect "$image" > manifest.txt
+          docker buildx imagetools inspect "$IMAGE" > manifest.txt
           cat manifest.txt
           for want in linux/amd64 linux/arm64; do
             grep -q "$want" manifest.txt || {
-              echo "::error title=Missing platform::$image does not offer $want"
+              echo "::error title=Missing platform::the published image does not offer $want"
               exit 1
             }
           done
 
       - name: Pull the amd64 image and confirm that is what ran
         run: |
-          image='${{ needs.publish.outputs.image }}'
-          docker pull --platform linux/amd64 "$image"
-          arch=$(docker run --rm --platform linux/amd64 "$image" bash -c 'uname -m')
+          docker pull --platform linux/amd64 "$IMAGE"
+          arch=$(docker run --rm --platform linux/amd64 "$IMAGE" bash -c 'uname -m')
           echo "container reports: $arch"
           [ "$arch" = "x86_64" ] || {
             echo "::error title=Wrong architecture::expected x86_64, got $arch"
@@ -130,20 +132,17 @@ jobs:
       # instruction printed an empty string and exited 0.
       - name: Every bundled tool reports a version
         run: |
-          image='${{ needs.publish.outputs.image }}'
-          docker run --rm --platform linux/amd64 "$image" version
+          docker run --rm --platform linux/amd64 "$IMAGE" version
 
       - name: The Java stages pass
         run: |
-          image='${{ needs.publish.outputs.image }}'
-          docker run --rm --platform linux/amd64 "$image" selftest
+          docker run --rm --platform linux/amd64 "$IMAGE" selftest
 
       # The step the build itself cannot run. It is what catches an aligner that reports a
       # version and then cannot align.
       - name: STAR, Bowtie2 and samtools actually align
         run: |
-          image='${{ needs.publish.outputs.image }}'
-          docker run --rm --platform linux/amd64 "$image" selftest --aligners
+          docker run --rm --platform linux/amd64 "$IMAGE" selftest --aligners
 
   # Says plainly why nothing was published, instead of leaving a silently absent job.
   skipped:
